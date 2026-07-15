@@ -1,0 +1,568 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/nafiskhan/mdbench/internal/app"
+	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/tui/component/filebrowser"
+)
+
+type screen int
+
+const (
+	screenHome screen = iota
+	screenSource
+	screenFile
+	screenPaste
+	screenLoading
+	screenInspect
+	screenSaved
+	screenError
+)
+
+type styles struct {
+	text     lipgloss.Style
+	muted    lipgloss.Style
+	accent   lipgloss.Style
+	warning  lipgloss.Style
+	error    lipgloss.Style
+	success  lipgloss.Style
+	box      lipgloss.Style
+	header   lipgloss.Style
+	footer   lipgloss.Style
+	selected lipgloss.Style
+}
+
+type artifactMsg struct {
+	artifact model.Artifact
+	err      error
+}
+
+type savedMsg struct {
+	path string
+	err  error
+}
+
+type Model struct {
+	service *app.Service
+	config  app.Config
+
+	screen       screen
+	returnTo     screen
+	width        int
+	height       int
+	dark         bool
+	styles       styles
+	homeCursor   int
+	sourceCursor int
+	status       string
+	err          error
+
+	fileBrowser  filebrowser.Model
+	paste        textarea.Model
+	labelInput   textinput.Model
+	editingLabel bool
+	discardArmed bool
+
+	artifact      model.Artifact
+	showBundle    bool
+	inspectOffset int
+	savedPath     string
+}
+
+func New(service *app.Service, config app.Config) Model {
+	startDir, err := os.UserHomeDir()
+	if err != nil {
+		startDir = string(os.PathSeparator)
+	}
+	paste := textarea.New()
+	paste.Prompt = "│ "
+	paste.Placeholder = "Paste a complete skill or instructions..."
+	paste.ShowLineNumbers = false
+	paste.CharLimit = int(config.MaxArtifactBytes)
+	paste.SetWidth(72)
+	paste.SetHeight(14)
+
+	label := textinput.New()
+	label.Prompt = "version: "
+	label.Placeholder = "optional, e.g. v2"
+	label.CharLimit = 120
+	label.SetWidth(48)
+
+	appStyles := newStyles(true)
+	return Model{
+		service:     service,
+		config:      config,
+		screen:      screenHome,
+		dark:        true,
+		styles:      appStyles,
+		fileBrowser: filebrowser.New(startDir, fileBrowserStyles(appStyles)),
+		paste:       paste,
+		labelInput:  label,
+	}
+}
+
+func (m Model) Init() tea.Cmd {
+	return func() tea.Msg { return tea.RequestBackgroundColor() }
+}
+
+func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := message.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		m.resizeInputs()
+		return m, nil
+	case tea.BackgroundColorMsg:
+		m.dark = msg.IsDark()
+		m.styles = newStyles(m.dark)
+		m.fileBrowser.SetStyles(fileBrowserStyles(m.styles))
+		return m, nil
+	case filebrowser.SelectedMsg:
+		updated, cmd, _ := m.inspectFile(msg.Path)
+		return updated, cmd
+	case filebrowser.CanceledMsg:
+		m.screen = screenSource
+		return m, nil
+	case artifactMsg:
+		if msg.err != nil {
+			m.err, m.screen = msg.err, screenError
+			return m, nil
+		}
+		m.artifact = msg.artifact
+		m.labelInput.SetValue(msg.artifact.Label)
+		m.inspectOffset, m.showBundle = 0, false
+		m.screen, m.status = screenInspect, ""
+		return m, nil
+	case savedMsg:
+		if msg.err != nil {
+			m.err, m.screen = msg.err, screenError
+			return m, nil
+		}
+		m.savedPath, m.screen = msg.path, screenSaved
+		return m, nil
+	}
+
+	key, isKey := message.(tea.KeyPressMsg)
+	if isKey && key.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if isKey && m.width >= 40 && m.height >= 16 {
+		if updated, cmd, handled := m.handleKey(key); handled {
+			return updated, cmd
+		}
+	}
+
+	var cmd tea.Cmd
+	switch m.screen {
+	case screenFile:
+		m.fileBrowser, cmd = m.fileBrowser.Update(message)
+	case screenPaste:
+		m.paste, cmd = m.paste.Update(message)
+	case screenInspect:
+		if m.editingLabel {
+			m.labelInput, cmd = m.labelInput.Update(message)
+		}
+	}
+	return m, cmd
+}
+
+func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
+	value := key.String()
+	switch m.screen {
+	case screenHome:
+		if value == "q" {
+			return m, tea.Quit, true
+		}
+		if value == "up" && m.homeCursor > 0 {
+			m.homeCursor--
+			return m, nil, true
+		}
+		if value == "down" && m.homeCursor < 3 {
+			m.homeCursor++
+			return m, nil, true
+		}
+		if value == "n" || value == "enter" && m.homeCursor == 0 {
+			m.screen, m.status = screenSource, ""
+			return m, nil, true
+		}
+		if value == "enter" {
+			m.status = "This flow arrives in a later MVP stage."
+			return m, nil, true
+		}
+	case screenSource:
+		if value == "esc" {
+			m.screen = screenHome
+			return m, nil, true
+		}
+		if value == "up" || value == "down" {
+			m.sourceCursor = 1 - m.sourceCursor
+			return m, nil, true
+		}
+		if value == "enter" {
+			if m.sourceCursor == 0 {
+				m.fileBrowser.Reset()
+				m.screen, m.status = screenFile, ""
+				return m, nil, true
+			}
+			m.screen, m.discardArmed = screenPaste, false
+			return m, m.paste.Focus(), true
+		}
+	case screenPaste:
+		if value == "super+enter" {
+			return m.inspectPaste()
+		}
+		if value == "esc" {
+			if strings.TrimSpace(m.paste.Value()) == "" || m.discardArmed {
+				m.paste.Blur()
+				m.paste.Reset()
+				m.screen, m.discardArmed, m.status = screenSource, false, ""
+				return m, nil, true
+			}
+			m.discardArmed = true
+			m.status = "Press esc again to discard the pasted text."
+			return m, nil, true
+		}
+		m.discardArmed = false
+		return m, nil, false
+	case screenInspect:
+		if m.editingLabel {
+			switch value {
+			case "enter":
+				m.artifact.Label = strings.TrimSpace(m.labelInput.Value())
+				m.editingLabel = false
+				m.labelInput.Blur()
+				return m, nil, true
+			case "esc":
+				m.labelInput.SetValue(m.artifact.Label)
+				m.editingLabel = false
+				m.labelInput.Blur()
+				return m, nil, true
+			}
+			return m, nil, false
+		}
+		switch value {
+		case "esc":
+			m.screen = screenSource
+			return m, nil, true
+		case "e":
+			if m.artifact.Source == "stdin" {
+				return m, nil, true
+			}
+			m.editingLabel = true
+			return m, m.labelInput.Focus(), true
+		case "b":
+			if m.artifact.Source == "stdin" {
+				return m, nil, true
+			}
+			m.showBundle = !m.showBundle
+			m.inspectOffset = 0
+			return m, nil, true
+		case "up":
+			if m.inspectOffset > 0 {
+				m.inspectOffset--
+			}
+			return m, nil, true
+		case "down":
+			m.inspectOffset++
+			return m, nil, true
+		case "enter":
+			if m.artifact.HasBlockingFindings() {
+				m.status = "Fix blocking issues before saving."
+				return m, nil, true
+			}
+			m.returnTo, m.screen = screenInspect, screenLoading
+			return m, func() tea.Msg {
+				path, err := m.service.SaveArtifact(m.artifact)
+				return savedMsg{path: path, err: err}
+			}, true
+		}
+	case screenSaved:
+		if value == "h" || value == "esc" {
+			m.screen, m.artifact, m.savedPath, m.status = screenHome, model.Artifact{}, "", ""
+			return m, nil, true
+		}
+		if value == "q" {
+			return m, tea.Quit, true
+		}
+	case screenError:
+		if value == "esc" || value == "enter" {
+			m.screen, m.err = m.returnTo, nil
+			return m, nil, true
+		}
+	}
+	return m, nil, false
+}
+
+func (m Model) inspectFile(path string) (Model, tea.Cmd, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		m.status = "Enter a skill file or folder."
+		return m, nil, true
+	}
+	m.returnTo, m.screen, m.status = screenFile, screenLoading, "Reviewing input..."
+	return m, func() tea.Msg {
+		artifact, err := m.service.InspectFile(path, "")
+		return artifactMsg{artifact: artifact, err: err}
+	}, true
+}
+
+func (m Model) inspectPaste() (Model, tea.Cmd, bool) {
+	content := []byte(m.paste.Value())
+	m.returnTo, m.screen, m.status = screenPaste, screenLoading, "Reviewing pasted text..."
+	return m, func() tea.Msg {
+		artifact, err := m.service.InspectPaste(content, "")
+		return artifactMsg{artifact: artifact, err: err}
+	}, true
+}
+
+func (m *Model) resizeInputs() {
+	canvas := m.canvasWidth()
+	inputWidth := max(20, canvas-8)
+	m.fileBrowser.SetSize(inputWidth, max(5, m.canvasHeight()-11))
+	m.labelInput.SetWidth(min(48, inputWidth))
+	m.paste.SetWidth(inputWidth)
+	m.paste.SetHeight(max(5, min(14, m.canvasHeight()-9)))
+}
+
+func (m Model) View() tea.View {
+	content := m.render()
+	view := tea.NewView(content)
+	view.AltScreen = true
+	view.WindowTitle = "mdbench"
+	return view
+}
+
+func (m Model) render() string {
+	width, height := m.width, m.height
+	if width == 0 {
+		width = 80
+	}
+	if height == 0 {
+		height = 24
+	}
+	if width < 40 || height < 16 {
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, "mdbench needs at least 40x16.\nResize the terminal to continue.")
+	}
+
+	canvasWidth, canvasHeight := m.canvasWidth(), m.canvasHeight()
+	header := m.styles.header.Width(canvasWidth - 4).Render("mdbench  " + m.flowName())
+	bodyHeight := max(5, canvasHeight-lipgloss.Height(header)-4)
+	body := m.styles.box.Width(canvasWidth - 4).Height(bodyHeight).Render(m.body(bodyHeight - 2))
+	footer := m.styles.footer.Width(canvasWidth - 2).Render(m.footer())
+	frame := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, frame)
+}
+
+func (m Model) body(available int) string {
+	switch m.screen {
+	case screenHome:
+		options := []string{"New evaluation", "Compare runs", "Saved runs", "Settings"}
+		lines := []string{m.styles.accent.Render("Evaluate Markdown instructions with repeatable evidence."), ""}
+		for index, option := range options {
+			prefix := "  "
+			style := m.styles.text
+			if index == m.homeCursor {
+				prefix, style = "> ", m.styles.selected
+			}
+			if index > 0 {
+				option += "  " + m.styles.muted.Render("coming later")
+			}
+			lines = append(lines, prefix+style.Render(option))
+		}
+		if m.status != "" {
+			lines = append(lines, "", m.styles.muted.Render(m.status))
+		}
+		return strings.Join(lines, "\n")
+	case screenSource:
+		return m.selectionBody("Choose input method", []string{"File path", "Paste text"}, m.sourceCursor)
+	case screenFile:
+		return strings.Join([]string{m.styles.accent.Render("Browse files"), m.styles.muted.Render(m.fileBrowser.CurrentDirectory()), "", m.fileBrowser.View()}, "\n")
+	case screenPaste:
+		return strings.Join([]string{m.styles.accent.Render("Paste skill or instructions"), m.styles.muted.Render("Paste a complete skill file or instructions only."), "", m.paste.View(), m.styles.warning.Render(m.status)}, "\n")
+	case screenLoading:
+		return lipgloss.Place(m.canvasWidth()-6, available, lipgloss.Center, lipgloss.Center, m.styles.accent.Render(m.status))
+	case screenInspect:
+		return m.inspectBody(available)
+	case screenSaved:
+		return strings.Join([]string{
+			m.styles.success.Render("Input saved"), "", m.savedPath, "", m.styles.muted.Render("Test generation arrives in Stage 2."),
+		}, "\n")
+	case screenError:
+		message := "Unknown error"
+		if m.err != nil {
+			message = m.err.Error()
+		}
+		return strings.Join([]string{m.styles.error.Render("Unable to continue"), "", message, "", m.styles.muted.Render("Enter or Esc returns to the previous screen.")}, "\n")
+	default:
+		return ""
+	}
+}
+
+func (m Model) inspectBody(available int) string {
+	artifact := m.artifact
+	lines := []string{
+		m.styles.accent.Render("Review input"),
+		fmt.Sprintf("input        %s", artifact.Source),
+		fmt.Sprintf("text hash    %s", shortHash(artifact.ContentSHA)),
+		fmt.Sprintf("files hash   %s  %d file(s)", shortHash(artifact.BundleSHA), len(artifact.Files)),
+		fmt.Sprintf("size         %d bytes, %d words, %d headings", artifact.Metrics.Bytes, artifact.Metrics.Words, artifact.Metrics.Headings),
+	}
+	if artifact.Source != "stdin" {
+		if m.editingLabel {
+			lines = append(lines, m.labelInput.View())
+		} else {
+			label := artifact.Label
+			if label == "" {
+				label = m.styles.muted.Render("none")
+			}
+			lines = append(lines, "version      "+label)
+		}
+	}
+	lines = append(lines, "")
+	if m.showBundle {
+		lines = append(lines, m.styles.accent.Render("Bundled files"))
+		for _, file := range artifact.Files {
+			lines = append(lines, fmt.Sprintf("  %s  %d bytes", file.Path, file.Size))
+		}
+	} else {
+		lines = append(lines, m.styles.accent.Render("Checks"))
+		if len(artifact.Findings) == 0 {
+			lines = append(lines, m.styles.success.Render("  No issues found"))
+		}
+		for _, finding := range artifact.Findings {
+			style := m.styles.muted
+			if finding.Severity == model.SeverityError {
+				style = m.styles.error
+			} else if finding.Severity == model.SeverityWarning {
+				style = m.styles.warning
+			}
+			location := finding.Path
+			if finding.Line > 0 {
+				location += fmt.Sprintf(":%d", finding.Line)
+			}
+			lines = append(lines, style.Render(fmt.Sprintf("  %-7s %s", finding.Severity, finding.Message)), m.styles.muted.Render("          "+location+"  "+finding.Hint))
+		}
+	}
+	if m.status != "" {
+		lines = append(lines, "", m.styles.warning.Render(m.status))
+	}
+	visible := max(1, available)
+	maxOffset := max(0, len(lines)-visible)
+	offset := min(m.inspectOffset, maxOffset)
+	return strings.Join(lines[offset:min(len(lines), offset+visible)], "\n")
+}
+
+func (m Model) selectionBody(title string, options []string, cursor int) string {
+	lines := []string{m.styles.accent.Render(title), ""}
+	for index, option := range options {
+		if index == cursor {
+			lines = append(lines, "> "+m.styles.selected.Render(option))
+		} else {
+			lines = append(lines, "  "+option)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) footer() string {
+	switch m.screen {
+	case screenHome:
+		return "↑/↓ move   enter select   q quit"
+	case screenSource:
+		return "↑/↓ move   enter select   esc back"
+	case screenFile:
+		return m.fileBrowser.Footer()
+	case screenPaste:
+		return "enter newline  cmd+enter review  esc discard"
+	case screenInspect:
+		if m.editingLabel {
+			return "enter save version   esc cancel"
+		}
+		if m.artifact.Source == "stdin" {
+			return "enter continue   esc back"
+		}
+		return "enter continue   b files   e version   esc back"
+	case screenSaved:
+		return "h home   q quit"
+	case screenError:
+		return "enter/esc back"
+	default:
+		return "ctrl+c quit"
+	}
+}
+
+func (m Model) flowName() string {
+	switch m.screen {
+	case screenHome:
+		return "home"
+	case screenSource, screenFile, screenPaste:
+		return "new evaluation / input"
+	case screenInspect:
+		return "new evaluation / review"
+	case screenSaved:
+		return "new evaluation / saved"
+	case screenError:
+		return "error"
+	default:
+		return "working"
+	}
+}
+
+func (m Model) canvasWidth() int {
+	width := m.width
+	if width <= 0 {
+		return 80
+	}
+	if width >= 80 {
+		return 80
+	}
+	if width >= 50 {
+		return 50
+	}
+	return width
+}
+
+func (m Model) canvasHeight() int {
+	height := m.height
+	if height <= 0 {
+		return 24
+	}
+	return min(30, height)
+}
+
+func newStyles(dark bool) styles {
+	text, muted, border, accent, success, warning, failure := "#1B1F23", "#667078", "#D7DBDF", "#D94F00", "#1A7F37", "#9A6700", "#CF222E"
+	if dark {
+		text, muted, border, accent, success, warning, failure = "#F2F4F5", "#889096", "#3A3F42", "#FF6A00", "#2EA043", "#D29922", "#F85149"
+	}
+	return styles{
+		text:     lipgloss.NewStyle().Foreground(lipgloss.Color(text)),
+		muted:    lipgloss.NewStyle().Foreground(lipgloss.Color(muted)),
+		accent:   lipgloss.NewStyle().Foreground(lipgloss.Color(accent)).Bold(true),
+		warning:  lipgloss.NewStyle().Foreground(lipgloss.Color(warning)),
+		error:    lipgloss.NewStyle().Foreground(lipgloss.Color(failure)),
+		success:  lipgloss.NewStyle().Foreground(lipgloss.Color(success)),
+		box:      lipgloss.NewStyle().Foreground(lipgloss.Color(text)).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(border)).Padding(0, 1),
+		header:   lipgloss.NewStyle().Foreground(lipgloss.Color(text)).Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color(border)).Padding(0, 1).Bold(true),
+		footer:   lipgloss.NewStyle().Foreground(lipgloss.Color(muted)).Padding(0, 1),
+		selected: lipgloss.NewStyle().Foreground(lipgloss.Color(accent)).Bold(true),
+	}
+}
+
+func fileBrowserStyles(value styles) filebrowser.Styles {
+	return filebrowser.Styles{Text: value.text, Muted: value.muted, Selected: value.selected}
+}
+
+func shortHash(hash string) string {
+	if len(hash) <= 12 {
+		return hash
+	}
+	return hash[:12]
+}

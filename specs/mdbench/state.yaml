@@ -1,0 +1,13 @@
+feature: mdbench
+phase: implementation
+approved:
+  requirements: true
+  design: true
+  tasks: true
+current_task: null
+history:
+  - task: stage-1
+    status: completed
+    started: 2026-07-15
+    completed: 2026-07-15
+updated: 2026-07-15
