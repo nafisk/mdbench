@@ -1,0 +1,5 @@
+{
+  "name": "mdbench-basic-node",
+  "private": true,
+  "type": "module"
+}

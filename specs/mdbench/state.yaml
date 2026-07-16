@@ -4,10 +4,13 @@ approved:
   requirements: true
   design: true
   tasks: true
-current_task: null
+current_task: stage-2
 history:
   - task: stage-1
     status: completed
     started: 2026-07-15
     completed: 2026-07-15
+  - task: stage-2
+    status: in_progress
+    started: 2026-07-15
 updated: 2026-07-15

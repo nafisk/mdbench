@@ -5,7 +5,7 @@ Date: 2026-07-15
 
 ## Working agreement
 
-Implementation is organized into five build stages. Each stage ends with one focused verification pass and one scoped Git commit. Work inside a stage does not require separate user verification or separate commits.
+Implementation is organized into five build stages. Each stage ends with one focused verification pass. Independently usable features receive focused Git commits, while user verification remains limited to the end of each stage.
 
 Tests stay narrow for the MVP. We will cover score math, immutable hashes, storage recovery, security boundaries, and one complete product path. Broad snapshot matrices, exhaustive provider failures, and large compatibility suites are deferred until the product idea is proven.
 
@@ -29,6 +29,14 @@ Likely files:
 - initial `internal/tui/` shell and artifact screens
 
 Dependencies: none.
+
+Feature commits:
+
+- `add built-in fixtures and suite contract`
+- `add deterministic suite generation harness`
+- `add guided suite review flow`
+- `add immutable suite revisions and reuse`
+- `add evaluation execution plan`
 
 Stage verification:
 
@@ -61,7 +69,6 @@ Stage verification:
 
 - Run focused tests for suite validation, canonical hashing, and revision immutability.
 - Manually walk the generate and reuse paths to the execution plan.
-- Commit as `build suite review and planning flow`.
 
 ## [ ] Stage 3: Secure container runtime
 
