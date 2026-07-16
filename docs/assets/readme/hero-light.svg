@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" role="img" aria-labelledby="title description">
+  <title id="title">mdbench</title>
+  <desc id="description">A compact terminal panel showing the mdbench workflow from input inspection to test drafting and plan review.</desc>
+  <rect width="1200" height="260" rx="24" fill="#FFFFFF"/>
+  <rect x="36" y="32" width="1128" height="196" rx="16" fill="#F6F8FA" stroke="#D7DBDF" stroke-width="2"/>
+  <circle cx="66" cy="58" r="5" fill="#BC4C00"/>
+  <circle cx="84" cy="58" r="5" fill="#D7DBDF"/>
+  <circle cx="102" cy="58" r="5" fill="#D7DBDF"/>
+
+  <text x="72" y="126" fill="#1B1F23" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="54" font-weight="700">md</text>
+  <text x="138" y="126" fill="#BC4C00" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="54" font-weight="700">bench</text>
+  <text x="74" y="162" fill="#667078" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="17">markdown evaluation workbench</text>
+  <rect x="72" y="187" width="206" height="3" rx="1.5" fill="#BC4C00"/>
+
+  <rect x="570" y="93" width="150" height="62" rx="10" fill="#FFFFFF" stroke="#D7DBDF"/>
+  <text x="645" y="130" text-anchor="middle" fill="#1B1F23" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="17">inspect</text>
+
+  <line x1="720" y1="124" x2="760" y2="124" stroke="#BC4C00" stroke-width="2"/>
+  <polygon points="760,124 750,119 750,129" fill="#BC4C00"/>
+
+  <rect x="770" y="93" width="150" height="62" rx="10" fill="#FFFFFF" stroke="#D7DBDF"/>
+  <text x="845" y="130" text-anchor="middle" fill="#1B1F23" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="17">draft tests</text>
+
+  <line x1="920" y1="124" x2="960" y2="124" stroke="#BC4C00" stroke-width="2"/>
+  <polygon points="960,124 950,119 950,129" fill="#BC4C00"/>
+
+  <rect x="970" y="93" width="150" height="62" rx="10" fill="#FFFFFF" stroke="#BC4C00"/>
+  <text x="1045" y="130" text-anchor="middle" fill="#1B1F23" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="17">review plan</text>
+  <text x="845" y="185" text-anchor="middle" fill="#667078" font-family="SFMono-Regular, Consolas, Liberation Mono, monospace" font-size="14">repeatable tests, explicit criteria</text>
+</svg>
