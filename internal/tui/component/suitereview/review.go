@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/nafiskhan/mdbench/internal/suite"
+	"github.com/nafiskhan/mdbench/internal/tui/component/controls"
 )
 
 type Styles struct {
@@ -82,7 +83,7 @@ func (m Model) Update(message tea.Msg) (Model, tea.Cmd) {
 					m.mode = modeDimensions
 				}
 				return m, nil
-			case "super+enter":
+			case "super+enter", "ctrl+enter", "ctrl+s":
 				value := strings.TrimSpace(m.editor.Value())
 				if value == "" {
 					return m, nil
@@ -124,9 +125,9 @@ func (m Model) updateCases(key tea.KeyPressMsg) (Model, tea.Cmd) {
 	case "tab":
 		m.mode, m.offset = modeDimensions, 0
 	case "up":
-		m.caseCursor = max(0, m.caseCursor-1)
+		m.caseCursor = controls.Wrap(m.caseCursor, -1, len(m.draft.Cases))
 	case "down":
-		m.caseCursor = min(len(m.draft.Cases)-1, m.caseCursor+1)
+		m.caseCursor = controls.Wrap(m.caseCursor, 1, len(m.draft.Cases))
 	case "enter":
 		m.mode, m.offset = modeCaseDetail, 0
 	case " ", "space":
@@ -180,9 +181,9 @@ func (m Model) updateDimensions(key tea.KeyPressMsg) (Model, tea.Cmd) {
 	case "esc", "tab":
 		m.mode, m.offset = modeCases, 0
 	case "up":
-		m.dimensionCursor = max(0, m.dimensionCursor-1)
+		m.dimensionCursor = controls.Wrap(m.dimensionCursor, -1, len(m.draft.Dimensions))
 	case "down":
-		m.dimensionCursor = min(len(m.draft.Dimensions)-1, m.dimensionCursor+1)
+		m.dimensionCursor = controls.Wrap(m.dimensionCursor, 1, len(m.draft.Dimensions))
 	case " ", "space":
 		dimension := &m.draft.Dimensions[m.dimensionCursor]
 		dimension.Applicable = !dimension.Applicable
@@ -219,30 +220,33 @@ func (m Model) View() string {
 	case modeDimensions:
 		return m.dimensionList()
 	case modeEditCase:
-		return strings.Join([]string{m.styles.Accent.Render("Edit task prompt"), m.styles.Muted.Render("Enter adds a line. Command+Enter saves."), "", m.editor.View()}, "\n")
+		return strings.Join([]string{m.styles.Accent.Render("Edit task prompt"), m.styles.Muted.Render("Enter adds a line. Command+Enter saves; Ctrl+S is the terminal fallback."), "", m.editor.View()}, "\n")
 	case modeEditRubric:
-		return strings.Join([]string{m.styles.Accent.Render("Refine judge rubric"), m.styles.Muted.Render("Enter adds a line. Command+Enter saves."), "", m.editor.View()}, "\n")
+		return strings.Join([]string{m.styles.Accent.Render("Refine judge rubric"), m.styles.Muted.Render("Enter adds a line. Command+Enter saves; Ctrl+S is the terminal fallback."), "", m.editor.View()}, "\n")
 	default:
 		return ""
 	}
 }
 
 func (m Model) Footer() string {
+	help := func(bindings ...controls.Binding) string {
+		return controls.Help(m.styles.Selected, m.styles.Muted, bindings...)
+	}
 	switch m.mode {
 	case modeCases:
 		if m.width < 60 {
-			return "↑↓ enter  space on/off  tab scores  f freeze"
+			return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "enter", Action: "open"}, controls.Binding{Key: "space", Action: "on/off"}, controls.Binding{Key: "f", Action: "freeze"})
 		}
-		return "↑↓ enter  space  [ ] order  +/- weight  tab scores  r rubric  f freeze"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "enter", Action: "open"}, controls.Binding{Key: "space", Action: "on/off"}, controls.Binding{Key: "[/]", Action: "order"}, controls.Binding{Key: "+/-", Action: "weight"}, controls.Binding{Key: "tab", Action: "scores"}, controls.Binding{Key: "f", Action: "freeze"})
 	case modeCaseDetail:
-		return "↑↓ scroll  e edit  space on/off  esc cases"
+		return help(controls.Binding{Key: "↑/↓", Action: "scroll"}, controls.Binding{Key: "e", Action: "edit"}, controls.Binding{Key: "space", Action: "on/off"}, controls.Binding{Key: "esc", Action: "cases"})
 	case modeDimensions:
 		if m.width < 60 {
-			return "↑↓  space  +/-  r rubric  tab cases  f freeze"
+			return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "space", Action: "applies"}, controls.Binding{Key: "+/-", Action: "weight"}, controls.Binding{Key: "f", Action: "freeze"})
 		}
-		return "↑↓ move  space applies  +/- weight  r rubric  tab cases  f freeze"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "space", Action: "applies"}, controls.Binding{Key: "+/-", Action: "weight"}, controls.Binding{Key: "r", Action: "rubric"}, controls.Binding{Key: "tab", Action: "cases"}, controls.Binding{Key: "f", Action: "freeze"})
 	case modeEditCase, modeEditRubric:
-		return "enter newline  cmd+enter save  esc cancel"
+		return help(controls.Binding{Key: "enter", Action: "newline"}, controls.Binding{Key: "cmd+enter / ctrl+s", Action: "save"}, controls.Binding{Key: "esc", Action: "cancel"})
 	default:
 		return ""
 	}

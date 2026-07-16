@@ -15,6 +15,7 @@ import (
 	"github.com/nafiskhan/mdbench/internal/model"
 	"github.com/nafiskhan/mdbench/internal/plan"
 	"github.com/nafiskhan/mdbench/internal/suite"
+	"github.com/nafiskhan/mdbench/internal/tui/component/controls"
 	"github.com/nafiskhan/mdbench/internal/tui/component/filebrowser"
 	"github.com/nafiskhan/mdbench/internal/tui/component/runconfig"
 	"github.com/nafiskhan/mdbench/internal/tui/component/suitereview"
@@ -29,13 +30,11 @@ const (
 	screenPaste
 	screenLoading
 	screenInspect
-	screenSaved
 	screenSuiteChoice
 	screenSuiteConfig
 	screenSuiteReview
 	screenSuiteReuse
 	screenSuiteReuseConfirm
-	screenSuiteReady
 	screenRunConfig
 	screenExecutionPlan
 	screenError
@@ -60,8 +59,7 @@ type artifactMsg struct {
 }
 
 type savedMsg struct {
-	path string
-	err  error
+	err error
 }
 
 type suiteMsg struct {
@@ -71,7 +69,6 @@ type suiteMsg struct {
 
 type frozenSuiteMsg struct {
 	value suite.Frozen
-	path  string
 	err   error
 }
 
@@ -107,14 +104,12 @@ type Model struct {
 	artifact      model.Artifact
 	showBundle    bool
 	inspectOffset int
-	savedPath     string
 	fixtures      []fixture.Snapshot
 	fixtureOn     map[string]bool
 	caseCount     int
 	draft         suite.Draft
 	frozen        suite.Frozen
 	suiteList     []suite.Frozen
-	suitePath     string
 	suiteReview   suitereview.Model
 	runConfig     runconfig.Model
 	executionPlan plan.ExecutionPlan
@@ -199,7 +194,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.err, m.screen = msg.err, screenError
 			return m, nil
 		}
-		m.savedPath, m.screen = msg.path, screenSaved
+		m.screen, m.suiteCursor, m.status = screenSuiteChoice, 0, "Input saved. Choose how to prepare the tests."
 		return m, nil
 	case suiteMsg:
 		if msg.err != nil {
@@ -215,19 +210,20 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.draft = msg.Draft
 		m.returnTo, m.screen, m.status = screenSuiteReview, screenLoading, "Freezing test suite..."
 		return m, func() tea.Msg {
-			value, path, err := m.service.FreezeSuite(msg.Draft)
-			return frozenSuiteMsg{value: value, path: path, err: err}
+			value, _, err := m.service.FreezeSuite(msg.Draft)
+			return frozenSuiteMsg{value: value, err: err}
 		}
 	case frozenSuiteMsg:
 		if msg.err != nil {
 			m.err, m.screen = msg.err, screenError
 			return m, nil
 		}
-		m.frozen, m.draft, m.suitePath = msg.value, msg.value.EditableDraft(), msg.path
-		m.screen, m.status = screenSuiteReady, ""
+		m.frozen, m.draft = msg.value, msg.value.EditableDraft()
 		if msg.value.OriginArtifactSHA != m.currentArtifactHash() {
 			m.returnTo, m.screen = screenSuiteChoice, screenSuiteReuseConfirm
+			return m, nil
 		}
+		m.openRunConfig()
 		return m, nil
 	case suiteListMsg:
 		if msg.err != nil {
@@ -250,7 +246,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen, m.status = screenExecutionPlan, ""
 		return m, nil
 	case runconfig.CanceledMsg:
-		m.screen = screenSuiteReady
+		m.screen = screenSuiteChoice
 		return m, nil
 	}
 
@@ -289,12 +285,12 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		if value == "q" {
 			return m, tea.Quit, true
 		}
-		if value == "up" && m.homeCursor > 0 {
-			m.homeCursor--
+		if value == "up" {
+			m.homeCursor = controls.Wrap(m.homeCursor, -1, 4)
 			return m, nil, true
 		}
-		if value == "down" && m.homeCursor < 3 {
-			m.homeCursor++
+		if value == "down" {
+			m.homeCursor = controls.Wrap(m.homeCursor, 1, 4)
 			return m, nil, true
 		}
 		if value == "n" || value == "enter" && m.homeCursor == 0 {
@@ -310,8 +306,12 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			m.screen = screenHome
 			return m, nil, true
 		}
-		if value == "up" || value == "down" {
-			m.sourceCursor = 1 - m.sourceCursor
+		if value == "up" {
+			m.sourceCursor = controls.Wrap(m.sourceCursor, -1, 2)
+			return m, nil, true
+		}
+		if value == "down" {
+			m.sourceCursor = controls.Wrap(m.sourceCursor, 1, 2)
 			return m, nil, true
 		}
 		if value == "enter" {
@@ -324,7 +324,7 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			return m, m.paste.Focus(), true
 		}
 	case screenPaste:
-		if value == "super+enter" {
+		if controls.AcceptText(value) {
 			return m.inspectPaste()
 		}
 		if value == "esc" {
@@ -388,32 +388,20 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			}
 			m.returnTo, m.screen = screenInspect, screenLoading
 			return m, func() tea.Msg {
-				path, err := m.service.SaveArtifact(m.artifact)
-				return savedMsg{path: path, err: err}
+				_, err := m.service.SaveArtifact(m.artifact)
+				return savedMsg{err: err}
 			}, true
-		}
-	case screenSaved:
-		if value == "enter" {
-			m.screen, m.suiteCursor, m.status = screenSuiteChoice, 0, ""
-			return m, nil, true
-		}
-		if value == "h" || value == "esc" {
-			m.screen, m.artifact, m.savedPath, m.status = screenHome, model.Artifact{}, "", ""
-			return m, nil, true
-		}
-		if value == "q" {
-			return m, tea.Quit, true
 		}
 	case screenSuiteChoice:
 		switch value {
 		case "esc":
-			m.screen, m.status = screenSaved, ""
+			m.screen, m.status = screenInspect, ""
 			return m, nil, true
 		case "up":
-			m.suiteCursor = max(0, m.suiteCursor-1)
+			m.suiteCursor = controls.Wrap(m.suiteCursor, -1, 2)
 			return m, nil, true
 		case "down":
-			m.suiteCursor = min(1, m.suiteCursor+1)
+			m.suiteCursor = controls.Wrap(m.suiteCursor, 1, 2)
 			return m, nil, true
 		case "enter":
 			if m.suiteCursor == 0 {
@@ -434,10 +422,10 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			m.screen, m.status = screenSuiteChoice, ""
 			return m, nil, true
 		case "up":
-			m.configCursor = max(0, m.configCursor-1)
+			m.configCursor = controls.Wrap(m.configCursor, -1, last+1)
 			return m, nil, true
 		case "down":
-			m.configCursor = min(last, m.configCursor+1)
+			m.configCursor = controls.Wrap(m.configCursor, 1, last+1)
 			return m, nil, true
 		case "left":
 			if m.configCursor == 0 {
@@ -484,14 +472,13 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		}
 		switch value {
 		case "up":
-			m.reuseCursor = max(0, m.reuseCursor-1)
+			m.reuseCursor = controls.Wrap(m.reuseCursor, -1, len(m.suiteList))
 			return m, nil, true
 		case "down":
-			m.reuseCursor = min(len(m.suiteList)-1, m.reuseCursor+1)
+			m.reuseCursor = controls.Wrap(m.reuseCursor, 1, len(m.suiteList))
 			return m, nil, true
 		case "e":
 			m.frozen = m.suiteList[m.reuseCursor]
-			m.suitePath = ""
 			m.draft = m.frozen.EditableDraft()
 			m.suiteReview = suitereview.New(m.draft, suiteReviewStyles(m.styles))
 			m.suiteReview.SetSize(m.inputWidth(), max(6, m.canvasHeight()-8))
@@ -499,9 +486,12 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		case "enter":
 			m.frozen = m.suiteList[m.reuseCursor]
-			m.suitePath = ""
 			m.draft = m.frozen.EditableDraft()
-			m.returnTo, m.screen = screenSuiteReuse, screenSuiteReuseConfirm
+			if m.frozen.OriginArtifactSHA != m.currentArtifactHash() {
+				m.returnTo, m.screen = screenSuiteReuse, screenSuiteReuseConfirm
+				return m, nil, true
+			}
+			m.openRunConfig()
 			return m, nil, true
 		}
 	case screenSuiteReuseConfirm:
@@ -510,18 +500,7 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		if value == "enter" {
-			m.screen, m.status = screenSuiteReady, ""
-			return m, nil, true
-		}
-	case screenSuiteReady:
-		if value == "esc" {
-			m.screen = screenSuiteChoice
-			return m, nil, true
-		}
-		if value == "enter" {
-			m.runConfig = runconfig.New(plan.DefaultConfig(), runConfigStyles(m.styles))
-			m.runConfig.SetSize(m.inputWidth())
-			m.screen, m.status = screenRunConfig, ""
+			m.openRunConfig()
 			return m, nil, true
 		}
 	case screenExecutionPlan:
@@ -531,7 +510,7 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		}
 		if value == "enter" {
 			m.planConfirmed = true
-			m.status = "Plan confirmed. Secure execution arrives in Stage 3."
+			m.status = "Plan confirmed. Evaluation execution is the next build step."
 			return m, nil, true
 		}
 	case screenError:
@@ -570,7 +549,7 @@ func (m *Model) resizeInputs() {
 	m.fileBrowser.SetSize(inputWidth, max(5, m.canvasHeight()-11))
 	m.labelInput.SetWidth(min(48, inputWidth))
 	m.paste.SetWidth(inputWidth)
-	m.paste.SetHeight(max(5, min(14, m.canvasHeight()-9)))
+	m.paste.SetHeight(max(5, m.canvasHeight()-12))
 	m.suiteReview.SetSize(inputWidth, max(6, m.canvasHeight()-8))
 	m.runConfig.SetSize(inputWidth)
 }
@@ -629,15 +608,26 @@ func (m Model) body(available int) string {
 	case screenFile:
 		return strings.Join([]string{m.styles.accent.Render("Browse files"), m.styles.muted.Render(m.fileBrowser.CurrentDirectory()), "", m.fileBrowser.View()}, "\n")
 	case screenPaste:
-		return strings.Join([]string{m.styles.accent.Render("Paste skill or instructions"), m.styles.muted.Render("Paste a complete skill file or instructions only."), "", m.paste.View(), m.styles.warning.Render(m.status)}, "\n")
+		editor := m.paste
+		statusRows := 0
+		if m.status != "" {
+			statusRows = 1
+		}
+		editor.SetHeight(max(5, available-3-statusRows))
+		lines := []string{
+			m.styles.accent.Render("Paste skill or instructions"),
+			m.styles.muted.Render("Enter adds a line. Command+Enter reviews; Ctrl+S is the terminal fallback."),
+			"",
+			editor.View(),
+		}
+		if m.status != "" {
+			lines = append(lines, m.styles.warning.Render(m.status))
+		}
+		return strings.Join(lines, "\n")
 	case screenLoading:
 		return lipgloss.Place(m.canvasWidth()-6, available, lipgloss.Center, lipgloss.Center, m.styles.accent.Render(m.status))
 	case screenInspect:
 		return m.inspectBody(available)
-	case screenSaved:
-		return strings.Join([]string{
-			m.styles.success.Render("Input saved"), "", m.savedPath, "", m.styles.muted.Render("Continue to choose or generate a test suite."),
-		}, "\n")
 	case screenSuiteChoice:
 		return m.suiteChoiceBody()
 	case screenSuiteConfig:
@@ -648,8 +638,6 @@ func (m Model) body(available int) string {
 		return m.suiteReuseBody()
 	case screenSuiteReuseConfirm:
 		return m.suiteReuseConfirmBody()
-	case screenSuiteReady:
-		return m.suiteReadyBody()
 	case screenRunConfig:
 		return m.runConfig.View()
 	case screenExecutionPlan:
@@ -732,46 +720,45 @@ func (m Model) selectionBody(title string, options []string, cursor int) string 
 }
 
 func (m Model) footer() string {
+	help := func(bindings ...controls.Binding) string {
+		return controls.Help(m.styles.selected, m.styles.muted, bindings...)
+	}
 	switch m.screen {
 	case screenHome:
-		return "↑/↓ move   enter select   q quit"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "enter", Action: "select"}, controls.Binding{Key: "q", Action: "quit"})
 	case screenSource:
-		return "↑/↓ move   enter select   esc back"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "enter", Action: "select"}, controls.Binding{Key: "esc", Action: "back"})
 	case screenFile:
 		return m.fileBrowser.Footer()
 	case screenPaste:
-		return "enter newline  cmd+enter review  esc discard"
+		return help(controls.Binding{Key: "enter", Action: "newline"}, controls.Binding{Key: "cmd+enter / ctrl+s", Action: "review"}, controls.Binding{Key: "esc", Action: "discard"})
 	case screenInspect:
 		if m.editingLabel {
-			return "enter save version   esc cancel"
+			return help(controls.Binding{Key: "enter", Action: "save version"}, controls.Binding{Key: "esc", Action: "cancel"})
 		}
 		if m.artifact.Source == "stdin" {
-			return "enter continue   esc back"
+			return help(controls.Binding{Key: "enter", Action: "continue"}, controls.Binding{Key: "esc", Action: "back"})
 		}
-		return "enter continue   b files   e version   esc back"
-	case screenSaved:
-		return "enter continue   h home   q quit"
+		return help(controls.Binding{Key: "enter", Action: "continue"}, controls.Binding{Key: "b", Action: "files"}, controls.Binding{Key: "e", Action: "version"}, controls.Binding{Key: "esc", Action: "back"})
 	case screenSuiteChoice:
-		return "↑↓ move  enter select  esc input"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "enter", Action: "select"}, controls.Binding{Key: "esc", Action: "input"})
 	case screenSuiteConfig:
-		return "↑↓ move  ←→ cases  space toggle  enter select  esc back"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "←/→", Action: "cases"}, controls.Binding{Key: "space", Action: "toggle"}, controls.Binding{Key: "enter", Action: "select"}, controls.Binding{Key: "esc", Action: "back"})
 	case screenSuiteReview:
 		return m.suiteReview.Footer()
 	case screenSuiteReuse:
-		return "↑↓ move  enter reuse  e revise  esc back"
+		return help(controls.Binding{Key: "↑/↓", Action: "move"}, controls.Binding{Key: "enter", Action: "reuse"}, controls.Binding{Key: "e", Action: "revise"}, controls.Binding{Key: "esc", Action: "back"})
 	case screenSuiteReuseConfirm:
-		return "enter confirm relevance  esc cancel"
-	case screenSuiteReady:
-		return "enter continue  esc suites"
+		return help(controls.Binding{Key: "enter", Action: "confirm relevance"}, controls.Binding{Key: "esc", Action: "cancel"})
 	case screenRunConfig:
 		return m.runConfig.Footer()
 	case screenExecutionPlan:
 		if m.planConfirmed {
-			return "esc configuration"
+			return help(controls.Binding{Key: "esc", Action: "configuration"})
 		}
-		return "enter confirm plan  esc configuration"
+		return help(controls.Binding{Key: "enter", Action: "confirm plan"}, controls.Binding{Key: "esc", Action: "configuration"})
 	case screenError:
-		return "enter/esc back"
+		return help(controls.Binding{Key: "enter / esc", Action: "back"})
 	default:
 		return "ctrl+c quit"
 	}
@@ -785,11 +772,9 @@ func (m Model) flowName() string {
 		return "new evaluation / input"
 	case screenInspect:
 		return "new evaluation / review"
-	case screenSaved:
-		return "new evaluation / input saved"
 	case screenSuiteChoice, screenSuiteConfig, screenSuiteReuse, screenSuiteReuseConfirm:
 		return "new evaluation / tests"
-	case screenSuiteReview, screenSuiteReady:
+	case screenSuiteReview:
 		return "new evaluation / review tests"
 	case screenRunConfig:
 		return "new evaluation / configure"
@@ -924,27 +909,6 @@ func (m Model) suiteReuseConfirmBody() string {
 	}, "\n")
 }
 
-func (m Model) suiteReadyBody() string {
-	title := "Suite ready"
-	if m.suitePath != "" {
-		title = "Suite frozen"
-	}
-	lines := []string{
-		m.styles.success.Render(title), "",
-		fmt.Sprintf("suite        %s", m.frozen.ID),
-		fmt.Sprintf("revision     %d", m.frozen.Revision),
-		fmt.Sprintf("suite hash   %s", shortHash(m.frozen.ContentSHA)),
-		fmt.Sprintf("cases        %d enabled", enabledCases(m.frozen.Draft)),
-	}
-	if m.suitePath != "" {
-		lines = append(lines, "", m.styles.muted.Render(m.suitePath))
-	}
-	if m.status != "" {
-		lines = append(lines, "", m.styles.warning.Render(m.status))
-	}
-	return strings.Join(lines, "\n")
-}
-
 func (m Model) executionPlanBody() string {
 	value := m.executionPlan
 	network := "off"
@@ -976,6 +940,12 @@ func (m Model) executionPlanBody() string {
 		lines = append(lines, "", style.Render(m.status))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m *Model) openRunConfig() {
+	m.runConfig = runconfig.New(plan.DefaultConfig(), runConfigStyles(m.styles))
+	m.runConfig.SetSize(m.inputWidth())
+	m.screen, m.status = screenRunConfig, ""
 }
 
 func displayLabel(artifact model.Artifact) string {

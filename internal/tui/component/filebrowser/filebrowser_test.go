@@ -102,3 +102,21 @@ func TestSearchIsSubstringNotFuzzy(t *testing.T) {
 		t.Fatalf("substring results were %#v", model.visible)
 	}
 }
+
+func TestArrowNavigationWraps(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.md", "b.md"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := New(root, Styles{})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if model.cursor != 1 {
+		t.Fatalf("up from first row moved to %d", model.cursor)
+	}
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if model.cursor != 0 {
+		t.Fatalf("down from last row moved to %d", model.cursor)
+	}
+}

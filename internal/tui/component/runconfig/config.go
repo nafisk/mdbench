@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/nafiskhan/mdbench/internal/plan"
+	"github.com/nafiskhan/mdbench/internal/tui/component/controls"
 )
 
 type Styles struct {
@@ -85,9 +86,9 @@ func (m Model) Update(message tea.Msg) (Model, tea.Cmd) {
 	case "esc":
 		return m, func() tea.Msg { return CanceledMsg{} }
 	case "up":
-		m.cursor = max(0, m.cursor-1)
+		m.cursor = controls.Wrap(m.cursor, -1, 8)
 	case "down":
-		m.cursor = min(7, m.cursor+1)
+		m.cursor = controls.Wrap(m.cursor, 1, 8)
 	case "left":
 		m.adjust(-1)
 	case "right":
@@ -148,7 +149,6 @@ func (m Model) View() string {
 		fmt.Sprintf("Trial timeout       %ds", m.config.TimeoutSeconds),
 		"Command network     " + network,
 		fmt.Sprintf("Maximum concurrency %d", m.config.Concurrency),
-		"Review execution plan",
 	}
 	lines := []string{m.styles.Accent.Render("Configure evaluation"), m.styles.Muted.Render("Executor and judge always run in independent sessions."), ""}
 	for index, row := range rows {
@@ -158,6 +158,12 @@ func (m Model) View() string {
 		}
 		lines = append(lines, style.Render(lipgloss.NewStyle().MaxWidth(m.width).Render(prefix+row)))
 	}
+	lines = append(lines, "", m.styles.Muted.Render("Ready to continue?"))
+	actionStyle, prefix := m.styles.Text, "  "
+	if m.cursor == 7 {
+		actionStyle, prefix = m.styles.Selected, "> "
+	}
+	lines = append(lines, actionStyle.Render(prefix+"Review execution plan"))
 	if m.config.ExecutorModel == m.config.JudgeModel {
 		lines = append(lines, "", m.styles.Muted.Render("Same model, separate sessions."))
 	}
@@ -169,7 +175,15 @@ func (m Model) View() string {
 
 func (m Model) Footer() string {
 	if m.editing {
-		return "enter save  esc cancel"
+		return controls.Help(m.styles.Selected, m.styles.Muted,
+			controls.Binding{Key: "enter", Action: "save"},
+			controls.Binding{Key: "esc", Action: "cancel"},
+		)
 	}
-	return "↑↓ move  ←→ change  enter edit/select  esc suite"
+	return controls.Help(m.styles.Selected, m.styles.Muted,
+		controls.Binding{Key: "↑/↓", Action: "move"},
+		controls.Binding{Key: "←/→", Action: "change"},
+		controls.Binding{Key: "enter", Action: "select"},
+		controls.Binding{Key: "esc", Action: "tests"},
+	)
 }

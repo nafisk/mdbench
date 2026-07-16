@@ -139,7 +139,10 @@ Home
 - Keep filename filtering active while browsing. Typing filters the current directory by case-insensitive substring, `Up` and `Down` move through matches, and `Enter` immediately opens the highlighted folder or selects the highlighted Markdown file. `Esc` clears a query before leaving the browser, and changing directories clears the query.
 - Resolve `SKILL.md` without case sensitivity when a directory is provided through a non-interactive interface.
 - Paste a complete skill file or instructions-only Markdown into a multiline editor.
-- Use `Enter` for new lines and `Command+Enter` to review pasted text when the terminal reports the Command modifier.
+- Use `Enter` for new lines. Use `Command+Enter` to review when the terminal reports the Command modifier, with `Ctrl+S` as a reliable fallback.
+- WHEN a selection is on the first or last row, THE SYSTEM SHALL let `Up` or `Down` wrap to the opposite end.
+- WHEN contextual controls are shown, THE SYSTEM SHALL render each key and action as a distinct group.
+- WHEN the paste editor opens, THE SYSTEM SHALL use the available content-pane height.
 
 #### Step 2 — Review input
 
@@ -147,6 +150,7 @@ Home
 - Allow an optional version such as `ponytail-v2`.
 - Require explicit confirmation of the chosen snapshot.
 - Allow pasted text to continue with safe defaults without requiring file or version controls.
+- WHEN the snapshot is saved successfully, THE SYSTEM SHALL continue directly to test-suite selection without a separate success screen.
 
 #### Step 3 — Choose test suite
 
@@ -170,6 +174,8 @@ Home
 - Show every generated case, assertion, judge criterion, score dimension, rating guide, hard-failure rule, and weight.
 - Allow editing, disabling, reordering, rubric refinement, and weight adjustment.
 - Freeze the suite into an immutable revision before execution.
+- WHEN a suite is frozen or a matching frozen suite is selected, THE SYSTEM SHALL continue directly to evaluation configuration.
+- WHEN a frozen suite comes from a different input, THE SYSTEM SHALL require a relevance confirmation before evaluation configuration.
 
 #### Step 6 — Review execution plan
 

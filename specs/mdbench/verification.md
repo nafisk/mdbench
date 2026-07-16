@@ -41,6 +41,8 @@ Evidence:
 - A manual TUI pass generated six tests, inspected case assertions and scoring anchors, froze revision 1, configured evaluation defaults, and confirmed a six-trial, twelve-model-call execution plan.
 - A second manual TUI pass loaded the frozen revision, showed its origin and applicability, required relevance confirmation, and reached an identical execution plan without changing the suite.
 - Focused TUI checks cover generation, freezing, saved-suite listing, edit-revision entry, reuse confirmation, model configuration, and plan construction.
+- A follow-up TUI usability pass adds wrapped list navigation, grouped footer controls, a full-height paste editor, and a `Ctrl+S` fallback for terminals that do not report Command keys.
+- Successful input saves and same-input suite freezes or reuse now continue directly; only cross-input suite reuse keeps its relevance confirmation.
 - Feature commits: `c91b01c`, `3eff67c`, `3f19a22`, and `66ef697`; the execution-plan commit completes this stage.
 
 Known gaps:

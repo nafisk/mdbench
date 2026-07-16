@@ -8,9 +8,11 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/nafiskhan/mdbench/internal/app"
 	"github.com/nafiskhan/mdbench/internal/model"
 	"github.com/nafiskhan/mdbench/internal/plan"
+	"github.com/nafiskhan/mdbench/internal/suite"
 	"github.com/nafiskhan/mdbench/internal/tui/component/runconfig"
 	"github.com/nafiskhan/mdbench/internal/tui/component/suitereview"
 )
@@ -45,10 +47,9 @@ func TestGenerateSuiteFlowReachesReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := New(service, config)
-	current.screen = screenSaved
+	current.screen = screenSuiteChoice
 	current.artifact = model.Artifact{EffectiveSHA: strings.Repeat("a", 64)}
 
-	current, _, _ = current.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	current, _, _ = current.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	current.configCursor = len(current.fixtures) + 1
 	current, cmd, handled := current.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -67,7 +68,7 @@ func TestGenerateSuiteFlowReachesReview(t *testing.T) {
 	}
 	updated, _ = result.Update(cmd())
 	result = updated.(Model)
-	if result.screen != screenSuiteReady || result.frozen.Revision != 1 {
+	if result.screen != screenRunConfig || result.frozen.Revision != 1 {
 		t.Fatalf("freeze reached screen %d revision %d", result.screen, result.frozen.Revision)
 	}
 
@@ -83,13 +84,8 @@ func TestGenerateSuiteFlowReachesReview(t *testing.T) {
 		t.Fatal("edit-revision path did not reopen a draft review")
 	}
 	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if result.screen != screenSuiteReady {
-		t.Fatalf("reuse confirmation reached screen %d", result.screen)
-	}
-	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if result.screen != screenRunConfig {
-		t.Fatalf("configuration started on screen %d", result.screen)
+		t.Fatalf("matching suite reuse started on screen %d", result.screen)
 	}
 	updated, _ = result.Update(runconfig.ContinueMsg{Config: plan.DefaultConfig()})
 	result = updated.(Model)
@@ -109,5 +105,55 @@ func TestPasteUsesCommandEnterForReview(t *testing.T) {
 	updated, cmd, handled := model.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModSuper})
 	if !handled || cmd == nil || updated.screen != screenLoading {
 		t.Fatal("command+enter did not start review")
+	}
+	updated, cmd, handled = model.handleKey(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	if !handled || cmd == nil || updated.screen != screenLoading {
+		t.Fatal("ctrl+s fallback did not start review")
+	}
+}
+
+func TestSuccessfulSaveSkipsSavedConfirmation(t *testing.T) {
+	current := Model{screen: screenLoading}
+	updated, _ := current.Update(savedMsg{})
+	result := updated.(Model)
+	if result.screen != screenSuiteChoice {
+		t.Fatalf("save continued to screen %d", result.screen)
+	}
+}
+
+func TestDifferentOriginSuiteStillRequiresConfirmation(t *testing.T) {
+	current := New(nil, app.Config{MaxArtifactBytes: 1 << 20})
+	current.screen = screenSuiteReuse
+	current.artifact = model.Artifact{EffectiveSHA: strings.Repeat("a", 64)}
+	current.suiteList = []suite.Frozen{{Draft: suite.Draft{OriginArtifactSHA: strings.Repeat("b", 64)}}}
+
+	result, _, _ := current.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if result.screen != screenSuiteReuseConfirm {
+		t.Fatalf("cross-input reuse continued to screen %d", result.screen)
+	}
+}
+
+func TestListNavigationWrapsToLastOption(t *testing.T) {
+	current := New(nil, app.Config{MaxArtifactBytes: 1 << 20})
+	current.screen, current.homeCursor = screenHome, 0
+	current, _, _ = current.handleKey(tea.KeyPressMsg{Code: tea.KeyUp})
+	if current.homeCursor != 3 {
+		t.Fatalf("home cursor wrapped to %d", current.homeCursor)
+	}
+
+	current.screen, current.configCursor = screenSuiteConfig, 0
+	current, _, _ = current.handleKey(tea.KeyPressMsg{Code: tea.KeyUp})
+	if current.configCursor != len(current.fixtures)+1 {
+		t.Fatalf("suite config cursor wrapped to %d", current.configCursor)
+	}
+}
+
+func TestPasteEditorUsesAvailablePaneHeight(t *testing.T) {
+	current := New(nil, app.Config{MaxArtifactBytes: 1 << 20})
+	current.screen = screenPaste
+	short := lipgloss.Height(current.body(10))
+	tall := lipgloss.Height(current.body(20))
+	if tall <= short {
+		t.Fatalf("paste editor height stayed at %d rows", tall)
 	}
 }

@@ -64,11 +64,13 @@ Feature commits:
 - `add guided suite review flow`
 - `add immutable suite revisions and reuse`
 - `add evaluation execution plan`
+- `streamline TUI navigation and review flow`
 
 Stage verification:
 
 - Run focused tests for suite validation, canonical hashing, and revision immutability.
 - Manually walk the generate and reuse paths to the execution plan.
+- Confirm wrapped selection, grouped footer controls, full-height paste editing, the `Ctrl+S` fallback, and direct transitions after save and freeze.
 
 ## [x] Stage 3: Secure container runtime
 

@@ -39,3 +39,11 @@ func TestConfigurationEditsModelNames(t *testing.T) {
 		t.Fatalf("executor model edit produced %#v", model.config)
 	}
 }
+
+func TestConfigurationNavigationWrapsToContinueAction(t *testing.T) {
+	model := New(plan.DefaultConfig(), Styles{})
+	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if model.cursor != 7 {
+		t.Fatalf("up from first option moved to %d", model.cursor)
+	}
+}

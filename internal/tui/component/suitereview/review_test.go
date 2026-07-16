@@ -54,3 +54,17 @@ func TestReviewContinueReturnsValidatedDraft(t *testing.T) {
 		t.Fatalf("continue returned %#v", message)
 	}
 }
+
+func TestReviewListNavigationWraps(t *testing.T) {
+	draft, err := harness.NewFakeGenerator().GenerateSuite(context.Background(), harness.GenerateRequest{
+		Artifact: model.Artifact{EffectiveSHA: strings.Repeat("c", 64)}, CaseCount: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := New(draft, Styles{})
+	review, _ = review.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if review.caseCursor != 1 {
+		t.Fatalf("up from first case moved to %d", review.caseCursor)
+	}
+}

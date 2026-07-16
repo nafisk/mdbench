@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/nafiskhan/mdbench/internal/tui/component/controls"
 )
 
 type Styles struct {
@@ -115,7 +116,13 @@ func (m Model) View() string {
 }
 
 func (m Model) Footer() string {
-	return "type to filter  ↑↓ move  → open  ← back  enter choose"
+	return controls.Help(m.styles.Selected, m.styles.Muted,
+		controls.Binding{Key: "type", Action: "filter"},
+		controls.Binding{Key: "↑/↓", Action: "move"},
+		controls.Binding{Key: "→", Action: "open"},
+		controls.Binding{Key: "←", Action: "back"},
+		controls.Binding{Key: "enter", Action: "choose"},
+	)
 }
 
 func (m Model) Update(message tea.Msg) (Model, tea.Cmd) {
@@ -129,10 +136,10 @@ func (m Model) Update(message tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, func() tea.Msg { return CanceledMsg{} }
 		case "up":
-			m.move(-1)
+			m.moveWrap(-1)
 			return m, nil
 		case "down":
-			m.move(1)
+			m.moveWrap(1)
 			return m, nil
 		case "pgup":
 			m.move(-max(1, m.height-1))
@@ -186,6 +193,14 @@ func (m *Model) move(delta int) {
 		return
 	}
 	m.cursor = min(len(m.visible)-1, max(0, m.cursor+delta))
+	m.keepCursorVisible()
+}
+
+func (m *Model) moveWrap(delta int) {
+	if len(m.visible) == 0 {
+		return
+	}
+	m.cursor = controls.Wrap(m.cursor, delta, len(m.visible))
 	m.keepCursorVisible()
 }
 

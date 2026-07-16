@@ -583,13 +583,15 @@ Each step uses one of three layouts:
 
 Large screens use list and detail panes. Medium and small screens show one pane at a time. `Enter` opens detail and `Esc` returns.
 
-The file step opens directly in an `ls -la`-style browser at the current user's home directory. It includes hidden entries, permissions, and sizes. The search field stays active: typing filters the loaded directory by case-insensitive filename substring, `Up` and `Down` move the result cursor, and `Enter` immediately opens the highlighted folder or selects the highlighted Markdown file. `Right` also opens a folder, `Left` returns to the parent folder, and entering any folder clears the query while keeping the search field active. `Esc` clears a query first and leaves the browser when the query is empty. There is no free-form path field. The browser is an isolated TUI component built on `os.ReadDir` and the existing Bubbles text input; it emits only selected and canceled events. In the paste editor, `Enter` inserts a new line and `Command+Enter` reviews the current text through Bubble Tea's enhanced keyboard support. The pasted-text review hides file-bundle and version controls and lets `Enter` continue with defaults.
+The file step opens directly in an `ls -la`-style browser at the current user's home directory. It includes hidden entries, permissions, and sizes. The search field stays active: typing filters the loaded directory by case-insensitive filename substring, `Up` and `Down` move the result cursor, and `Enter` immediately opens the highlighted folder or selects the highlighted Markdown file. `Right` also opens a folder, `Left` returns to the parent folder, and entering any folder clears the query while keeping the search field active. `Esc` clears a query first and leaves the browser when the query is empty. There is no free-form path field. The browser is an isolated TUI component built on `os.ReadDir` and the existing Bubbles text input; it emits only selected and canceled events.
+
+Selection lists wrap at both ends. Footer help renders every key and action as a separate group. The paste editor fills the content pane: `Enter` inserts a line, `Command+Enter` reviews when supported, and `Ctrl+S` provides a terminal-safe fallback. Successful saves and suite freezes move directly to the next decision. The flow keeps reviews only for the input snapshot, generated tests, cross-input suite relevance, and the final execution plan.
 
 ### Shared controls
 
 | Key | Action |
 |---|---|
-| `Up` and `Down` | Move selection, or scroll when no list is focused |
+| `Up` and `Down` | Move selection and wrap at list ends, or scroll when no list is focused |
 | `PageUp` and `PageDown` | Scroll the focused detail pane |
 | `Enter` | Select, open, or continue |
 | `Esc` | Back, close overlay, or open cancellation while work is active |
@@ -729,8 +731,8 @@ flowchart TD
     FILES -->|"Esc"| SOURCE
 
     PASTE -->|"Type or paste"| PASTE
-    PASTE -->|"Ctrl+S: accept valid non-empty text"| INSPECT
-    PASTE -->|"Ctrl+S: invalid input"| PASTE_ERROR["Inline input error"]
+    PASTE -->|"Command+Enter or Ctrl+S: review valid text"| INSPECT
+    PASTE -->|"Command+Enter or Ctrl+S: invalid input"| PASTE_ERROR["Inline input error"]
     PASTE_ERROR -->|"Enter"| PASTE
     PASTE -->|"Esc: discard after confirm"| SOURCE
 
@@ -786,10 +788,10 @@ flowchart TD
     REVIEW -->|"Esc: generated draft"| GEN_CONFIG
     REVIEW -->|"Esc: edited revision draft"| EDIT_CONFIG
     CASE_EDIT -->|"Tab/Shift+Tab: fields"| CASE_EDIT
-    CASE_EDIT -->|"Ctrl+S: save draft"| REVIEW
+    CASE_EDIT -->|"Command+Enter or Ctrl+S: save draft"| REVIEW
     CASE_EDIT -->|"Esc: discard edits"| REVIEW
     RUBRIC -->|"Tab/Shift+Tab: dimensions"| RUBRIC
-    RUBRIC -->|"Ctrl+S: save draft"| REVIEW
+    RUBRIC -->|"Command+Enter or Ctrl+S: save draft"| REVIEW
     RUBRIC -->|"Esc: discard edits"| REVIEW
     FREEZE -->|"y: write immutable revision"| PLAN
     FREEZE -->|"n or Esc"| REVIEW
