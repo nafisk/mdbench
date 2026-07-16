@@ -12,7 +12,7 @@ func TestStartArgumentsApplyContainerBoundary(t *testing.T) {
 	args, err := startArgs(ContainerSpec{
 		Name: "mdbench-trial", Image: "example@sha256:abc", WorkDir: "/work", User: "10001:10001",
 		Hostname: "mdbench", Network: NetworkBridge, MemoryBytes: 1 << 30, CPUs: "1", PidsLimit: 128,
-		Tmpfs:       []TmpfsMount{{Target: "/work", SizeBytes: 64 << 20}},
+		Tmpfs:       []TmpfsMount{{Target: "/work", SizeBytes: 64 << 20, UID: 10001, GID: 10001}},
 		Mounts:      []BindMount{{Source: "/safe/control", Target: "/control", ReadOnly: true}},
 		Environment: []string{"CODEX_HOME=/codex-home"}, Command: []string{"sleep", "infinity"},
 	})
@@ -23,12 +23,47 @@ func TestStartArgumentsApplyContainerBoundary(t *testing.T) {
 		"run", "--detach", "--name", "mdbench-trial", "--read-only", "--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges", "--network", "bridge", "--memory", "1073741824",
 		"--cpus", "1", "--pids-limit", "128", "--workdir", "/work", "--user", "10001:10001",
-		"--hostname", "mdbench", "--tmpfs", "/work:rw,nosuid,nodev,size=67108864,mode=0700",
+		"--hostname", "mdbench", "--tmpfs", "/work:rw,nosuid,nodev,size=67108864,mode=0700,uid=10001,gid=10001",
 		"--mount", "type=bind,src=/safe/control,dst=/control,readonly", "--env", "CODEX_HOME=/codex-home",
 		"example@sha256:abc", "sleep", "infinity",
 	}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("unexpected args:\n got %#v\nwant %#v", args, want)
+	}
+}
+
+func TestDefaultContainerSpecRequiresAndUsesImmutableImage(t *testing.T) {
+	metadata, err := EvaluationImageMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.LocalTag != DefaultImageTag || metadata.User != "10001:10001" {
+		t.Fatalf("unexpected image metadata: %#v", metadata)
+	}
+	if _, err := DefaultContainerSpec(DefaultImageTag); err == nil {
+		t.Fatal("mutable image tag should be rejected")
+	}
+	image := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	spec, err := DefaultContainerSpec(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Image != image || spec.Network != NetworkBridge || spec.User != "10001:10001" {
+		t.Fatalf("unexpected default spec: %#v", spec)
+	}
+	if len(spec.Tmpfs) != 4 {
+		t.Fatalf("tmpfs mounts = %d, want 4", len(spec.Tmpfs))
+	}
+}
+
+func TestImmutableReferencePrefersRepositoryDigest(t *testing.T) {
+	digest := "registry.example/mdbench@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	value, err := (ImageInfo{ID: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", RepoDigests: []string{digest}}).ImmutableReference()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != digest {
+		t.Fatalf("reference = %q, want %q", value, digest)
 	}
 }
 
@@ -69,6 +104,9 @@ type fakeRuntime struct {
 func (f *fakeRuntime) Name() string                                      { return "fake" }
 func (f *fakeRuntime) Version(context.Context) (string, error)           { return "fake 1", nil }
 func (f *fakeRuntime) ImageExists(context.Context, string) (bool, error) { return true, nil }
+func (f *fakeRuntime) InspectImage(context.Context, string) (ImageInfo, error) {
+	return ImageInfo{ID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, nil
+}
 func (f *fakeRuntime) Start(context.Context, ContainerSpec) (string, error) {
 	f.calls = append(f.calls, "start")
 	return "container-1", nil

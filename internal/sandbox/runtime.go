@@ -14,11 +14,30 @@ type Runtime interface {
 	Name() string
 	Version(context.Context) (string, error)
 	ImageExists(context.Context, string) (bool, error)
+	InspectImage(context.Context, string) (ImageInfo, error)
 	Start(context.Context, ContainerSpec) (string, error)
 	Exec(context.Context, string, ProcessSpec) (ProcessResult, error)
 	Stop(context.Context, string, time.Duration) error
 	Kill(context.Context, string) error
 	Remove(context.Context, string) error
+}
+
+type ImageInfo struct {
+	ID          string
+	RepoDigests []string
+	Labels      map[string]string
+}
+
+func (i ImageInfo) ImmutableReference() (string, error) {
+	for _, reference := range i.RepoDigests {
+		if validDigestReference(reference) {
+			return reference, nil
+		}
+	}
+	if validImageID(i.ID) {
+		return i.ID, nil
+	}
+	return "", errors.New("container image has no immutable SHA-256 reference")
 }
 
 type ContainerSpec struct {
@@ -49,6 +68,8 @@ type TmpfsMount struct {
 	Target    string
 	SizeBytes int64
 	Mode      uint32
+	UID       int
+	GID       int
 }
 
 type BindMount struct {

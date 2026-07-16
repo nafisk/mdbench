@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "mdbench-eval",
+  "version": "0.1.0",
+  "local_tag": "mdbench-eval:0.1.0",
+  "codex_version": "0.144.3",
+  "node_version": "22.23.1",
+  "python_version": "3.11.2",
+  "go_version": "1.26.5",
+  "node_base": "node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3",
+  "go_base": "golang:1.26-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651",
+  "user": "10001:10001"
+}

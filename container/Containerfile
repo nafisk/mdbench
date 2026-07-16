@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1.7
+ARG GO_IMAGE=golang:1.26-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3
+
+FROM ${GO_IMAGE} AS probe-build
+WORKDIR /src
+COPY go.mod ./
+COPY cmd/mdbench-boundary-probe/ ./cmd/mdbench-boundary-probe/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /mdbench-boundary-probe ./cmd/mdbench-boundary-probe
+
+FROM ${NODE_IMAGE}
+ARG CODEX_VERSION=0.144.3
+
+LABEL io.mdbench.image.version="0.1.0" \
+      io.mdbench.codex.version="0.144.3"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    HOME=/home/mdbench \
+    PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bubblewrap=0.8.0-2+deb12u1 \
+        ca-certificates=20230311+deb12u1 \
+        git=1:2.39.5-0+deb12u3 \
+        passwd=1:4.13+dfsg1-1+deb12u2 \
+        python3=3.11.2-1+b1 \
+        ripgrep=13.0.0-4+b2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=probe-build /usr/local/go/ /usr/local/go/
+COPY container/codex-install/package.json container/codex-install/package-lock.json /opt/codex-install/
+RUN test "$(node -p "require('/opt/codex-install/package.json').dependencies['@openai/codex']")" = "${CODEX_VERSION}" \
+    && cd /opt/codex-install \
+    && npm ci --omit=dev --ignore-scripts=false \
+    && ln -s /opt/codex-install/node_modules/.bin/codex /usr/local/bin/codex \
+    && npm cache clean --force
+
+RUN /usr/sbin/groupadd --gid 10001 mdbench \
+    && /usr/sbin/useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin mdbench \
+    && install -d -o 10001 -g 10001 -m 0700 /home/mdbench
+
+COPY --from=probe-build /mdbench-boundary-probe /usr/local/bin/mdbench-boundary-probe
+COPY internal/sandbox/image.json /opt/mdbench/image.json
+
+USER 10001:10001
+WORKDIR /work
+CMD ["sleep", "infinity"]

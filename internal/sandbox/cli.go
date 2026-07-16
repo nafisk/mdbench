@@ -3,6 +3,7 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -71,15 +72,52 @@ func (c *CLI) ImageExists(ctx context.Context, image string) (bool, error) {
 	if image == "" {
 		return false, errors.New("image is required")
 	}
-	_, err := c.run.Run(ctx, c.binary, []string{"image", "inspect", image}, ProcessSpec{})
+	_, err := c.InspectImage(ctx, image)
 	if err == nil {
 		return true, nil
 	}
 	var exitErr *CommandError
-	if errors.As(err, &exitErr) && exitErr.ExitCode != 0 {
+	if errors.As(err, &exitErr) && missingImageOutput(exitErr.Output) {
 		return false, nil
 	}
 	return false, fmt.Errorf("inspect image: %w", err)
+}
+
+func (c *CLI) InspectImage(ctx context.Context, image string) (ImageInfo, error) {
+	if image == "" {
+		return ImageInfo{}, errors.New("image is required")
+	}
+	result, err := c.run.Run(ctx, c.binary, []string{"image", "inspect", image}, ProcessSpec{})
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	var records []struct {
+		ID          string   `json:"Id"`
+		Digest      string   `json:"Digest"`
+		RepoDigests []string `json:"RepoDigests"`
+		Config      struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+	if err := json.Unmarshal([]byte(result.Output), &records); err != nil {
+		return ImageInfo{}, fmt.Errorf("parse %s image inspection: %w", c.kind, err)
+	}
+	if len(records) != 1 {
+		return ImageInfo{}, fmt.Errorf("%s returned %d image records, want one", c.kind, len(records))
+	}
+	record := records[0]
+	if record.ID != "" && !strings.HasPrefix(record.ID, "sha256:") {
+		record.ID = "sha256:" + record.ID
+	}
+	if len(record.RepoDigests) == 0 && strings.HasPrefix(record.Digest, "sha256:") {
+		record.RepoDigests = []string{record.Digest}
+	}
+	return ImageInfo{ID: record.ID, RepoDigests: record.RepoDigests, Labels: record.Config.Labels}, nil
+}
+
+func missingImageOutput(output string) bool {
+	output = strings.ToLower(output)
+	return strings.Contains(output, "no such image") || strings.Contains(output, "image not known") || strings.Contains(output, "image not found")
 }
 
 func (c *CLI) Start(ctx context.Context, spec ContainerSpec) (string, error) {
@@ -139,6 +177,12 @@ func startArgs(spec ContainerSpec) ([]string, error) {
 			mode = 0o700
 		}
 		value := fmt.Sprintf("%s:rw,nosuid,nodev,size=%d,mode=%04o", mount.Target, mount.SizeBytes, mode)
+		if mount.UID > 0 {
+			value += ",uid=" + strconv.Itoa(mount.UID)
+		}
+		if mount.GID > 0 {
+			value += ",gid=" + strconv.Itoa(mount.GID)
+		}
 		args = append(args, "--tmpfs", value)
 	}
 	for _, mount := range spec.Mounts {
