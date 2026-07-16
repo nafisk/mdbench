@@ -6,10 +6,13 @@
   </picture>
 </p>
 
-<p align="center"><strong>Turn Markdown instructions into reviewable test suites.</strong></p>
-<p align="center"><sub>Local-first · terminal-native · early preview</sub></p>
+<p align="center">
+  <a href="./go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/nafisk/mdbench?style=flat-square&amp;logo=go&amp;logoColor=white&amp;label=go&amp;labelColor=191919&amp;color=3A3F42"></a>
+  <a href="https://pkg.go.dev/charm.land/bubbletea/v2@v2.0.6"><img alt="Bubble Tea v2.0.6" src="https://img.shields.io/badge/Bubble_Tea-v2.0.6-3A3F42?style=flat-square&amp;labelColor=191919"></a>
+  <a href="https://github.com/nafisk/mdbench/issues"><img alt="Issues welcome" src="https://img.shields.io/badge/issues-welcome-BC4C00?style=flat-square&amp;logo=github&amp;logoColor=white&amp;labelColor=191919"></a>
+</p>
 
-mdbench is a focused TUI for inspecting a Markdown skill, drafting weighted tests, saving exact suite revisions, and reviewing how an evaluation will run.
+mdbench is a terminal workbench for turning Markdown instructions into versioned test suites with explicit scoring criteria.
 
 ## Quick start
 
@@ -21,31 +24,25 @@ cd mdbench
 go run ./cmd/mdbench
 ```
 
-## What works today
+## Workflow
 
-- Open a Markdown file or skill folder, or paste instructions directly.
-- Inspect frontmatter, references, size limits, placeholders, and secret-like values before saving anything.
-- Draft test suites against built-in Go, Node.js, Python, and empty workspaces.
-- Review test cases, assertions, weighted scoring criteria, judge guidance, and hard-failure rules.
-- Save immutable suite revisions, reuse them, and build an execution plan with separate executor and judge sessions.
+| Stage | What you review |
+| :-- | :-- |
+| `01  inspect` | Open a Markdown file or skill folder, or paste instructions. Check frontmatter, references, size limits, placeholders, and secret-like values. |
+| `02  draft` | Draft cases against Go, Node.js, Python, or empty workspaces. Review assertions, weights, judge guidance, and hard-failure rules. |
+| `03  save` | Save an immutable suite revision, or reuse one after confirming it still fits the input. |
+| `04  plan` | Choose executor and judge models, trials, timeout, concurrency, and network policy before confirming the run plan. |
 
-## How it works
+## Status
 
-```text
-Markdown skill
-      ↓
-Inspect input
-      ↓
-Draft test cases
-      ↓
-Review weighted scoring criteria
-      ↓
-Save test suite
-      ↓
-Review execution plan
-```
+| Ready now | Not wired yet |
+| :-- | :-- |
+| Input inspection and local snapshots | Model-generated suite drafts |
+| Suite drafting, editing, versioning, and reuse | Trial execution and independent judging |
+| Execution-plan configuration | Scorecards, saved runs, comparisons, and non-interactive commands |
 
-The current generator is deterministic and intended for development. LLM-generated suites, trial execution, judging, scorecards, and run comparison are still in progress.
+> [!NOTE]
+> The current build stops after execution-plan confirmation. Nothing runs a model or trial yet.
 
 ## Development
 
@@ -55,11 +52,11 @@ go vet ./...
 go run ./cmd/mdbench
 ```
 
-The full product requirements and design live in [`specs/mdbench`](./specs/mdbench).
+Project docs: [requirements](./specs/mdbench/requirements.md) · [design](./specs/mdbench/design.md) · [tasks](./specs/mdbench/tasks.md) · [verification](./specs/mdbench/verification.md)
 
 ## Contributing
 
-mdbench is still early. Bug reports and focused ideas are welcome in [GitHub Issues](https://github.com/nafisk/mdbench/issues). A contribution guide will arrive before the first public release.
+For now, use [GitHub Issues](https://github.com/nafisk/mdbench/issues) for bug reports and focused product ideas.
 
 ## License
 
