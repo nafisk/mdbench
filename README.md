@@ -12,6 +12,12 @@
   <a href="https://github.com/nafisk/mdbench/issues"><img alt="Issues welcome" src="https://img.shields.io/badge/issues-welcome-BC4C00?style=flat-square&amp;logo=github&amp;logoColor=white&amp;labelColor=191919"></a>
 </p>
 
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-works-today">Current scope</a> ·
+  <a href="./specs/mdbench/design.md">Design</a>
+</p>
+
 mdbench is a terminal workbench for turning Markdown instructions into versioned test suites with explicit scoring criteria.
 
 ## Quick start
@@ -24,22 +30,13 @@ cd mdbench
 go run ./cmd/mdbench
 ```
 
-## Workflow
+## What works today
 
-| Stage | What you review |
-| :-- | :-- |
-| `01  inspect` | Open a Markdown file or skill folder, or paste instructions. Check frontmatter, references, size limits, placeholders, and secret-like values. |
-| `02  draft` | Draft cases against Go, Node.js, Python, or empty workspaces. Review assertions, weights, judge guidance, and hard-failure rules. |
-| `03  save` | Save an immutable suite revision, or reuse one after confirming it still fits the input. |
-| `04  plan` | Choose executor and judge models, trials, timeout, concurrency, and network policy before confirming the run plan. |
-
-## Status
-
-| Ready now | Not wired yet |
-| :-- | :-- |
-| Input inspection and local snapshots | Model-generated suite drafts |
-| Suite drafting, editing, versioning, and reuse | Trial execution and independent judging |
-| Execution-plan configuration | Scorecards, saved runs, comparisons, and non-interactive commands |
+- [x] Inspect a Markdown file, skill folder, or pasted instructions before saving the input snapshot.
+- [x] Draft and edit test cases for Go, Node.js, Python, or an empty workspace.
+- [x] Review assertions, weighted scoring criteria, judge guidance, and hard-failure rules.
+- [x] Save immutable suite revisions, reuse them, and configure an execution plan.
+- [ ] Generate suites with a model, run isolated trials, judge the results, and compare scorecards.
 
 > [!NOTE]
 > The current build stops after execution-plan confirmation. Nothing runs a model or trial yet.
