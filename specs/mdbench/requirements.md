@@ -434,6 +434,8 @@ Acceptance criteria:
 
 - WHEN the terminal is at least 80 columns wide, THE SYSTEM SHALL render the primary flow in a centered large layout with readable content and footer.
 - WHEN the terminal is between 50 and 79 columns wide, THE SYSTEM SHALL render a compact centered layout without hiding the current action.
+- WHILE the user is in the primary setup flow, THE SYSTEM SHALL use the standard setup canvas unless the user has explicitly approved a screen-specific size.
+- WHEN a screen-specific size is explicitly approved, THE SYSTEM SHALL allow that screen to use a larger or smaller bounded layout without changing the default setup canvas.
 - WHEN the terminal is below the supported minimum, THE SYSTEM SHALL show a resize message rather than clipping required controls.
 - WHEN content exceeds the available height, THE SYSTEM SHALL make the content scrollable while keeping navigation discoverable.
 - WHEN the user exits, THE SYSTEM SHALL restore the previous screen buffer and terminal cursor state.

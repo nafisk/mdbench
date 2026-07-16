@@ -555,6 +555,8 @@ The TUI follows the visual rules found during terminal.shop research but uses md
 - Small: full terminal with one content pane.
 - Minimum: 40 columns by 16 rows. Smaller terminals show a resize screen.
 
+These sizes are the default policy for the primary setup flow, not a global limit. The layout boundary may accept a screen-specific size policy later, allowing a bounded larger or smaller canvas without changing other screens. No screen uses an override until the user explicitly requests one.
+
 The header is one bordered row, three terminal cells tall. It contains `mdbench`, the current flow, and a compact run or model status. The footer shows only commands that work on the current screen.
 
 ### Palette
