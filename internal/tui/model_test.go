@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/nafiskhan/mdbench/internal/app"
 	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/tui/component/suitereview"
 )
 
 func TestFileBrowserStartsAtUserHome(t *testing.T) {
@@ -56,6 +57,29 @@ func TestGenerateSuiteFlowReachesReview(t *testing.T) {
 	result := updated.(Model)
 	if result.screen != screenSuiteReview || len(result.draft.Cases) != 6 {
 		t.Fatalf("generation reached screen %d with %d cases", result.screen, len(result.draft.Cases))
+	}
+	updated, cmd = result.Update(suitereview.ContinueMsg{Draft: result.draft})
+	result = updated.(Model)
+	if cmd == nil || result.screen != screenLoading {
+		t.Fatal("review did not start freezing")
+	}
+	updated, _ = result.Update(cmd())
+	result = updated.(Model)
+	if result.screen != screenSuiteReady || result.frozen.Revision != 1 {
+		t.Fatalf("freeze reached screen %d revision %d", result.screen, result.frozen.Revision)
+	}
+
+	result.screen, result.suiteCursor = screenSuiteChoice, 1
+	result, cmd, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	updated, _ = result.Update(cmd())
+	result = updated.(Model)
+	if result.screen != screenSuiteReuse || len(result.suiteList) != 1 {
+		t.Fatalf("reuse listed %d suites on screen %d", len(result.suiteList), result.screen)
+	}
+	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if result.screen != screenSuiteReady {
+		t.Fatalf("reuse confirmation reached screen %d", result.screen)
 	}
 }
 

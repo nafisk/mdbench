@@ -1,11 +1,15 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nafiskhan/mdbench/internal/analyze"
+	"github.com/nafiskhan/mdbench/internal/harness"
+	"github.com/nafiskhan/mdbench/internal/model"
 )
 
 func TestSaveArtifactCommitsCompleteDirectory(t *testing.T) {
@@ -36,6 +40,42 @@ func TestSaveArtifactCommitsCompleteDirectory(t *testing.T) {
 		if len(entry.Name()) >= len(".artifact-") && entry.Name()[:len(".artifact-")] == ".artifact-" {
 			t.Fatalf("temporary transaction remains after commit: %s", entry.Name())
 		}
+	}
+}
+
+func TestSuiteRevisionsAreImmutableAndListed(t *testing.T) {
+	value, err := harness.NewFakeGenerator().GenerateSuite(context.Background(), harness.GenerateRequest{
+		Artifact: model.Artifact{EffectiveSHA: strings.Repeat("a", 64)}, CaseCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, firstPath, err := store.SaveSuiteDraft(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value.Cases[0].Prompt = "A revised prompt."
+	second, _, err := store.SaveSuiteDraft(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Revision != 1 || second.Revision != 2 || first.ContentSHA == second.ContentSHA {
+		t.Fatalf("revisions are %#v and %#v", first, second)
+	}
+	saved, err := os.ReadFile(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "A revised prompt.") {
+		t.Fatal("first revision was mutated")
+	}
+	listed, err := store.ListSuites()
+	if err != nil || len(listed) != 2 {
+		t.Fatalf("listed %d revisions: %v", len(listed), err)
 	}
 }
 

@@ -31,6 +31,8 @@ const (
 	screenSuiteChoice
 	screenSuiteConfig
 	screenSuiteReview
+	screenSuiteReuse
+	screenSuiteReuseConfirm
 	screenSuiteReady
 	screenError
 )
@@ -63,6 +65,17 @@ type suiteMsg struct {
 	err   error
 }
 
+type frozenSuiteMsg struct {
+	value suite.Frozen
+	path  string
+	err   error
+}
+
+type suiteListMsg struct {
+	values []suite.Frozen
+	err    error
+}
+
 type Model struct {
 	service *app.Service
 	config  app.Config
@@ -77,6 +90,7 @@ type Model struct {
 	sourceCursor int
 	suiteCursor  int
 	configCursor int
+	reuseCursor  int
 	status       string
 	err          error
 
@@ -94,6 +108,9 @@ type Model struct {
 	fixtureOn     map[string]bool
 	caseCount     int
 	draft         suite.Draft
+	frozen        suite.Frozen
+	suiteList     []suite.Frozen
+	suitePath     string
 	suiteReview   suitereview.Model
 }
 
@@ -187,7 +204,30 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen, m.status = screenSuiteReview, ""
 		return m, nil
 	case suitereview.ContinueMsg:
-		m.draft, m.screen = msg.Draft, screenSuiteReady
+		m.draft = msg.Draft
+		m.returnTo, m.screen, m.status = screenSuiteReview, screenLoading, "Freezing test suite..."
+		return m, func() tea.Msg {
+			value, path, err := m.service.FreezeSuite(msg.Draft)
+			return frozenSuiteMsg{value: value, path: path, err: err}
+		}
+	case frozenSuiteMsg:
+		if msg.err != nil {
+			m.err, m.screen = msg.err, screenError
+			return m, nil
+		}
+		m.frozen, m.draft, m.suitePath = msg.value, msg.value.EditableDraft(), msg.path
+		m.screen, m.status = screenSuiteReady, ""
+		if msg.value.OriginArtifactSHA != m.currentArtifactHash() {
+			m.returnTo, m.screen = screenSuiteChoice, screenSuiteReuseConfirm
+		}
+		return m, nil
+	case suiteListMsg:
+		if msg.err != nil {
+			m.err, m.screen = msg.err, screenError
+			return m, nil
+		}
+		m.suiteList, m.reuseCursor = msg.values, 0
+		m.screen, m.status = screenSuiteReuse, ""
 		return m, nil
 	case suitereview.CanceledMsg:
 		m.screen = screenSuiteConfig
@@ -357,7 +397,11 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			if m.suiteCursor == 0 {
 				m.screen, m.configCursor, m.status = screenSuiteConfig, 0, ""
 			} else {
-				m.status = "No frozen suites yet. Generate and freeze one first."
+				m.returnTo, m.screen, m.status = screenSuiteChoice, screenLoading, "Loading frozen suites..."
+				return m, func() tea.Msg {
+					values, err := m.service.ListSuites()
+					return suiteListMsg{values: values, err: err}
+				}, true
 			}
 			return m, nil, true
 		}
@@ -408,13 +452,52 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 				}, true
 			}
 		}
-	case screenSuiteReady:
+	case screenSuiteReuse:
 		if value == "esc" {
+			m.screen = screenSuiteChoice
+			return m, nil, true
+		}
+		if len(m.suiteList) == 0 {
+			return m, nil, true
+		}
+		switch value {
+		case "up":
+			m.reuseCursor = max(0, m.reuseCursor-1)
+			return m, nil, true
+		case "down":
+			m.reuseCursor = min(len(m.suiteList)-1, m.reuseCursor+1)
+			return m, nil, true
+		case "e":
+			m.frozen = m.suiteList[m.reuseCursor]
+			m.suitePath = ""
+			m.draft = m.frozen.EditableDraft()
+			m.suiteReview = suitereview.New(m.draft, suiteReviewStyles(m.styles))
+			m.suiteReview.SetSize(m.inputWidth(), max(6, m.canvasHeight()-8))
 			m.screen = screenSuiteReview
+			return m, nil, true
+		case "enter":
+			m.frozen = m.suiteList[m.reuseCursor]
+			m.suitePath = ""
+			m.draft = m.frozen.EditableDraft()
+			m.returnTo, m.screen = screenSuiteReuse, screenSuiteReuseConfirm
+			return m, nil, true
+		}
+	case screenSuiteReuseConfirm:
+		if value == "esc" {
+			m.screen = m.returnTo
 			return m, nil, true
 		}
 		if value == "enter" {
-			m.status = "Suite freezing is the next feature in this stage."
+			m.screen, m.status = screenSuiteReady, ""
+			return m, nil, true
+		}
+	case screenSuiteReady:
+		if value == "esc" {
+			m.screen = screenSuiteChoice
+			return m, nil, true
+		}
+		if value == "enter" {
+			m.status = "Execution planning is the next feature in this stage."
 			return m, nil, true
 		}
 	case screenError:
@@ -526,8 +609,12 @@ func (m Model) body(available int) string {
 		return m.suiteConfigBody()
 	case screenSuiteReview:
 		return m.suiteReview.View()
+	case screenSuiteReuse:
+		return m.suiteReuseBody()
+	case screenSuiteReuseConfirm:
+		return m.suiteReuseConfirmBody()
 	case screenSuiteReady:
-		return strings.Join([]string{m.styles.success.Render("Suite review complete"), "", fmt.Sprintf("%d enabled cases are ready to freeze.", enabledCases(m.draft)), "", m.styles.muted.Render(m.status)}, "\n")
+		return m.suiteReadyBody()
 	case screenError:
 		message := "Unknown error"
 		if m.err != nil {
@@ -631,8 +718,12 @@ func (m Model) footer() string {
 		return "↑↓ move  ←→ cases  space toggle  enter select  esc back"
 	case screenSuiteReview:
 		return m.suiteReview.Footer()
+	case screenSuiteReuse:
+		return "↑↓ move  enter reuse  e revise  esc back"
+	case screenSuiteReuseConfirm:
+		return "enter confirm relevance  esc cancel"
 	case screenSuiteReady:
-		return "enter continue  esc review"
+		return "enter continue  esc suites"
 	case screenError:
 		return "enter/esc back"
 	default:
@@ -650,7 +741,7 @@ func (m Model) flowName() string {
 		return "new evaluation / review"
 	case screenSaved:
 		return "new evaluation / input saved"
-	case screenSuiteChoice, screenSuiteConfig:
+	case screenSuiteChoice, screenSuiteConfig, screenSuiteReuse, screenSuiteReuseConfirm:
 		return "new evaluation / tests"
 	case screenSuiteReview, screenSuiteReady:
 		return "new evaluation / review tests"
@@ -695,6 +786,13 @@ func (m Model) selectedFixtureIDs() []string {
 	return result
 }
 
+func (m Model) currentArtifactHash() string {
+	if m.artifact.EffectiveSHA != "" {
+		return m.artifact.EffectiveSHA
+	}
+	return m.artifact.ContentSHA
+}
+
 func (m Model) suiteChoiceBody() string {
 	options := []string{"Generate new suite", "Reuse frozen suite"}
 	lines := []string{m.styles.accent.Render("Choose test suite"), m.styles.muted.Render("Generate a reviewable draft or reuse the exact tests from an earlier run."), ""}
@@ -734,6 +832,63 @@ func (m Model) suiteConfigBody() string {
 		continueLine = m.styles.selected.Render("> Generate draft")
 	}
 	lines = append(lines, "", continueLine)
+	if m.status != "" {
+		lines = append(lines, "", m.styles.warning.Render(m.status))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) suiteReuseBody() string {
+	lines := []string{m.styles.accent.Render("Reuse frozen suite"), m.styles.muted.Render("Enter reuses the exact revision. E creates a new editable revision."), ""}
+	if len(m.suiteList) == 0 {
+		return strings.Join(append(lines, m.styles.muted.Render("No frozen suites yet.")), "\n")
+	}
+	rows := max(1, m.canvasHeight()-14)
+	start := max(0, m.reuseCursor-rows+1)
+	end := min(len(m.suiteList), start+rows)
+	for index := start; index < end; index++ {
+		value := m.suiteList[index]
+		line := fmt.Sprintf("  %s  r%d  %d cases  %s", value.ID, value.Revision, enabledCases(value.Draft), shortHash(value.ContentSHA))
+		if index == m.reuseCursor {
+			line = m.styles.selected.Render(">" + line[1:])
+		}
+		lines = append(lines, line)
+	}
+	selected := m.suiteList[m.reuseCursor]
+	lines = append(lines, "", m.styles.accent.Render("Applicability"), lipgloss.NewStyle().Width(m.inputWidth()).Render(selected.Applicability), m.styles.muted.Render("origin  "+shortHash(selected.OriginArtifactSHA)))
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) suiteReuseConfirmBody() string {
+	match := m.frozen.OriginArtifactSHA == m.currentArtifactHash()
+	compatibility := m.styles.success.Render("Origin matches this input.")
+	if !match {
+		compatibility = m.styles.warning.Render("Origin differs from this input. Confirm every case is still relevant.")
+	}
+	return strings.Join([]string{
+		m.styles.accent.Render("Confirm suite relevance"), "",
+		fmt.Sprintf("suite    %s  r%d", m.frozen.ID, m.frozen.Revision),
+		"origin   " + shortHash(m.frozen.OriginArtifactSHA),
+		"input    " + shortHash(m.currentArtifactHash()), "", compatibility, "",
+		lipgloss.NewStyle().Width(m.inputWidth()).Render(m.frozen.Applicability),
+	}, "\n")
+}
+
+func (m Model) suiteReadyBody() string {
+	title := "Suite ready"
+	if m.suitePath != "" {
+		title = "Suite frozen"
+	}
+	lines := []string{
+		m.styles.success.Render(title), "",
+		fmt.Sprintf("suite        %s", m.frozen.ID),
+		fmt.Sprintf("revision     %d", m.frozen.Revision),
+		fmt.Sprintf("suite hash   %s", shortHash(m.frozen.ContentSHA)),
+		fmt.Sprintf("cases        %d enabled", enabledCases(m.frozen.Draft)),
+	}
+	if m.suitePath != "" {
+		lines = append(lines, "", m.styles.muted.Render(m.suitePath))
+	}
 	if m.status != "" {
 		lines = append(lines, "", m.styles.warning.Render(m.status))
 	}

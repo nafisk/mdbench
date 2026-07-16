@@ -4,18 +4,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/suite"
 )
 
 var safeIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 type Store struct {
-	root string
+	root      string
+	suiteRoot string
+	mu        sync.RWMutex
 }
 
 func New(dataDir string) (*Store, error) {
@@ -23,14 +31,160 @@ func New(dataDir string) (*Store, error) {
 		return nil, errors.New("data directory is empty")
 	}
 	root := filepath.Join(dataDir, "artifacts")
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return nil, fmt.Errorf("create artifact store: %w", err)
+	suiteRoot := filepath.Join(dataDir, "suites")
+	for _, directory := range []string{root, suiteRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return nil, fmt.Errorf("create data store: %w", err)
+		}
 	}
-	result := &Store{root: root}
+	result := &Store{root: root, suiteRoot: suiteRoot}
 	if err := result.Reconcile(); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *Store) SaveSuiteDraft(draft suite.Draft) (suite.Frozen, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	revision, err := s.nextSuiteRevision(draft.ID)
+	if err != nil {
+		return suite.Frozen{}, "", err
+	}
+	frozen, err := suite.Freeze(draft, revision, time.Now().UTC())
+	if err != nil {
+		return suite.Frozen{}, "", err
+	}
+	directory := filepath.Join(s.suiteRoot, frozen.ID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return suite.Frozen{}, "", fmt.Errorf("create suite directory: %w", err)
+	}
+	path := filepath.Join(directory, fmt.Sprintf("%06d.json", frozen.Revision))
+	encoded, err := json.MarshalIndent(frozen, "", "  ")
+	if err != nil {
+		return suite.Frozen{}, "", fmt.Errorf("encode suite revision: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	if err := writeAtomic(path, encoded); err != nil {
+		return suite.Frozen{}, "", err
+	}
+	return frozen, path, nil
+}
+
+func (s *Store) ListSuites() ([]suite.Frozen, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(s.suiteRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read suite store: %w", err)
+	}
+	result := []suite.Frozen{}
+	for _, entry := range entries {
+		if !entry.IsDir() || !safeIDPattern.MatchString(entry.Name()) {
+			continue
+		}
+		files, err := os.ReadDir(filepath.Join(s.suiteRoot, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read suite %q: %w", entry.Name(), err)
+		}
+		for _, file := range files {
+			if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+				continue
+			}
+			frozen, err := readSuite(filepath.Join(s.suiteRoot, entry.Name(), file.Name()))
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, frozen)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].ID == result[right].ID {
+			return result[left].Revision > result[right].Revision
+		}
+		return result[left].ID < result[right].ID
+	})
+	return result, nil
+}
+
+func (s *Store) nextSuiteRevision(id string) (int, error) {
+	if !safeIDPattern.MatchString(id) || id == "." || id == ".." {
+		return 0, errors.New("suite ID is invalid")
+	}
+	directory := filepath.Join(s.suiteRoot, id)
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return 1, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read suite revisions: %w", err)
+	}
+	latest := 0
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		revision, err := strconv.Atoi(strings.TrimSuffix(entry.Name(), ".json"))
+		if err == nil {
+			latest = max(latest, revision)
+		}
+	}
+	return latest + 1, nil
+}
+
+func readSuite(path string) (suite.Frozen, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return suite.Frozen{}, fmt.Errorf("open suite revision: %w", err)
+	}
+	defer file.Close()
+	var frozen suite.Frozen
+	decoder := json.NewDecoder(io.LimitReader(file, 4<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&frozen); err != nil {
+		return suite.Frozen{}, fmt.Errorf("decode suite revision %q: %w", path, err)
+	}
+	expected, err := suite.RevisionHash(frozen.Draft, frozen.Revision)
+	if err != nil {
+		return suite.Frozen{}, fmt.Errorf("validate suite revision %q: %w", path, err)
+	}
+	if expected != frozen.ContentSHA {
+		return suite.Frozen{}, fmt.Errorf("suite revision %q hash does not match its content", path)
+	}
+	return frozen, nil
+}
+
+func writeAtomic(path string, content []byte) error {
+	if _, err := os.Lstat(path); err == nil {
+		return errors.New("suite revision already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check suite destination: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".suite-")
+	if err != nil {
+		return fmt.Errorf("create suite transaction: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("protect suite transaction: %w", err)
+	}
+	if _, err := temporary.Write(content); err != nil {
+		temporary.Close()
+		return fmt.Errorf("write suite transaction: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return fmt.Errorf("flush suite transaction: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close suite transaction: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("commit suite revision: %w", err)
+	}
+	return syncDirectory(filepath.Dir(path))
 }
 
 func (s *Store) Reconcile() error {

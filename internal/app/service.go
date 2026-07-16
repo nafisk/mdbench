@@ -46,6 +46,22 @@ func (s *Service) GenerateSuite(ctx context.Context, artifact model.Artifact, ca
 	return draft, nil
 }
 
+func (s *Service) FreezeSuite(draft suite.Draft) (suite.Frozen, string, error) {
+	frozen, path, err := s.store.SaveSuiteDraft(draft)
+	if err != nil {
+		return suite.Frozen{}, "", fmt.Errorf("freeze suite: %w", err)
+	}
+	return frozen, path, nil
+}
+
+func (s *Service) ListSuites() ([]suite.Frozen, error) {
+	values, err := s.store.ListSuites()
+	if err != nil {
+		return nil, fmt.Errorf("list suites: %w", err)
+	}
+	return values, nil
+}
+
 func (s *Service) InspectFile(path, label string) (model.Artifact, error) {
 	artifact, err := s.analyzer.InspectFile(path, label)
 	if err != nil {
