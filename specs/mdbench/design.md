@@ -383,7 +383,9 @@ The candidate, diff, transcript, final answer, and test output are all marked as
 
 ### Environment and limits
 
-The container sees only read-only control, fixture, artifact, and credential mounts. `/work` and private `/out` are size-limited tmpfs mounts. `/out` is outside the command permission profile, so model-run commands cannot inspect final structured output. The container has no host home, source repository, SSH agent, Docker socket, or unrelated filesystem mount. Linux capabilities are dropped, privilege escalation is disabled, and CPU, memory, and process limits are set.
+The container sees only read-only control, fixture, artifact, and credential mounts. `/work` and private `/out` are size-limited tmpfs mounts. `/out` is outside the command permission profile, so model-run commands cannot inspect final structured output. The container has no host home, source repository, SSH agent, Docker socket, or unrelated filesystem mount. CPU, memory, and process limits are set.
+
+Assertion containers and other non-Codex workloads drop all Linux capabilities and disable privilege escalation. The trusted Codex launcher container uses a separate Linux compatibility policy because Bubblewrap must create the inner command sandbox. That policy adds only the capabilities verified as necessary and relaxes the outer seccomp and AppArmor profiles. It never mounts the Docker socket or unrelated host paths. Model-run commands execute inside the named Codex permission profile, and preflight blocks every model call unless the boundary canary confirms bounded writes plus denied credential, host, and command-network access.
 
 Codex itself can read its credential and reach the provider. Model-run commands cannot read the credential paths or inherit credential variables. This boundary is tested, but it is still not a claim that the container can safely run malware.
 
@@ -683,7 +685,7 @@ Live Codex smoke tests require an explicit environment flag. The default test co
 |---|---|
 | Judge bias | Freeze detailed anchors, require evidence, keep objective results separate |
 | Prompt injection in any evidence | Mark all evidence untrusted, remove judge tools, use schemas, validate references, retain as residual risk |
-| Container escape or credential probing | Pin the image, drop capabilities, mount only inputs, scrub command env, disable trial network; do not claim malware isolation |
+| Container escape or credential probing | Pin the image, mount only inputs, scrub command env, disable trial network, and require a boundary canary. Keep strict capability dropping for assertions; limit the documented Bubblewrap exception to the trusted Codex launcher. Do not claim malware isolation. |
 | Docker or Podman is unavailable | Block model calls in preflight; static analysis and saved-run viewing still work |
 | Model drift | Save requested model, Codex version, prompt/config hashes, timestamps, suite hash, image digest, and fixture hash |
 | Suite overfits its origin skill | Review applicability, ban origin names by default, reuse exact frozen cases |

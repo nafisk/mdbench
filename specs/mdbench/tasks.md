@@ -97,6 +97,7 @@ Feature commits:
 - `add pinned evaluation image`
 - `add Codex permission profiles`
 - `add runtime preflight and canary cache`
+- `support nested Codex sandbox`
 
 Stage verification:
 

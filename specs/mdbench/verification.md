@@ -50,7 +50,7 @@ Known gaps:
 
 ## Stage 3: Secure container runtime
 
-Status: In progress — runtime compatibility decision required
+Status: In progress — nested Codex compatibility approved
 
 Evidence:
 
@@ -61,6 +61,6 @@ Evidence:
 - A real Colima/Docker boundary probe confirms a writable size-limited `/work`, a read-only root, readable control input, no host or credential path, and no network under `--network none`.
 - The live preflight resolves an immutable local image digest, validates image labels and Codex version, and fails closed before model calls when the inner Codex permission sandbox cannot start.
 
-Open decision:
+Approved adjustment:
 
-- Current Codex on Linux uses Bubblewrap. Under mdbench's approved outer policy (`--cap-drop ALL` and `no-new-privileges`), Colima blocks Bubblewrap from creating its namespace. OpenAI's current secure devcontainer instead adds powerful capabilities and disables the default seccomp and AppArmor profiles. That conflicts with the approved mdbench design, so mdbench does not weaken the OCI boundary without explicit approval.
+- Current Codex on Linux uses Bubblewrap. The user approved a Codex-launcher-only compatibility policy after the strict Colima canary proved that `--cap-drop ALL` and `no-new-privileges` block namespace creation. Assertions and other non-Codex containers keep the strict policy. The compatibility policy must still pass the credential, host, workspace, and network canary before model calls.
