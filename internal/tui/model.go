@@ -613,7 +613,7 @@ func (m Model) body(available int) string {
 		if m.status != "" {
 			statusRows = 1
 		}
-		editor.SetHeight(max(5, available-3-statusRows))
+		editor.SetHeight(max(5, available-4-statusRows))
 		lines := []string{
 			m.styles.accent.Render("Paste skill or instructions"),
 			m.styles.muted.Render("Enter adds a line. Command+Enter reviews; Ctrl+S is the terminal fallback."),
