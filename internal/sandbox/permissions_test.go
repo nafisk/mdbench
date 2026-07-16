@@ -21,7 +21,7 @@ func TestPermissionConfigFailsClosed(t *testing.T) {
 		`inherit = "none"`,
 		`"/codex-home" = "deny"`,
 		`"/host-home" = "deny"`,
-		`"/proc/*/environ" = "deny"`,
+		`"/proc" = "deny"`,
 		`"/out" = "deny"`,
 		`".codex/skills" = "read"`,
 		`[permissions.mdbench-trial.network]` + "\n" + `enabled = false`,

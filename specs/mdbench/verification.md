@@ -47,3 +47,20 @@ Known gaps:
 
 - The development generator is deterministic and makes no model calls. The live Codex generator waits for the approved secure runtime boundary.
 - Plan confirmation stops before execution. Containers, trials, and cancellation arrive in Stage 3.
+
+## Stage 3: Secure container runtime
+
+Status: In progress — runtime compatibility decision required
+
+Evidence:
+
+- Focused tests cover Docker and Podman argument construction, immutable image resolution, tmpfs ownership, bounded runtime output, stop-kill-remove cleanup, private permission-config writes, authentication detection, preflight checks, boundary failures, and successful canary reuse.
+- `go test ./...`, `go vet ./...`, and a full binary build pass.
+- The local image builds from pinned Node and Go digests, exact OS package versions, and the locked official `@openai/codex` 0.144.3 package.
+- The image reports Codex 0.144.3, Node 22.23.1, Python 3.11.2, and Go 1.26.5.
+- A real Colima/Docker boundary probe confirms a writable size-limited `/work`, a read-only root, readable control input, no host or credential path, and no network under `--network none`.
+- The live preflight resolves an immutable local image digest, validates image labels and Codex version, and fails closed before model calls when the inner Codex permission sandbox cannot start.
+
+Open decision:
+
+- Current Codex on Linux uses Bubblewrap. Under mdbench's approved outer policy (`--cap-drop ALL` and `no-new-privileges`), Colima blocks Bubblewrap from creating its namespace. OpenAI's current secure devcontainer instead adds powerful capabilities and disables the default seccomp and AppArmor profiles. That conflicts with the approved mdbench design, so mdbench does not weaken the OCI boundary without explicit approval.

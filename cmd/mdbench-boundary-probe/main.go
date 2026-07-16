@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const listenerAddress = "127.0.0.1:18080"
+
 type result struct {
 	WorkspaceWrite bool `json:"workspace_write"`
 	RootWrite      bool `json:"root_write"`
@@ -18,17 +20,44 @@ type result struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "serve" {
+		serve()
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "network" {
+		if canConnect(listenerAddress) {
+			return
+		}
+		os.Exit(1)
+	}
 	value := result{
 		WorkspaceWrite: canWrite("/work/.mdbench-boundary-probe"),
 		RootWrite:      canWrite("/etc/.mdbench-boundary-probe"),
 		ControlRead:    canRead("/control/public.txt"),
 		CredentialRead: canRead("/codex-home/auth.json"),
 		HostRead:       canRead("/host-home/.ssh"),
-		NetworkConnect: canConnect("1.1.1.1:53"),
+		NetworkConnect: canConnect(listenerAddress),
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(value); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func serve() {
+	listener, err := net.Listen("tcp", listenerAddress)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer listener.Close()
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = connection.Close()
 	}
 }
 

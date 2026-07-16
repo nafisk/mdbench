@@ -43,7 +43,7 @@ extends = ":read-only"
 "/home" = "deny"
 "/host-home" = "deny"
 "/out" = "deny"
-"/proc/*/environ" = "deny"
+"/proc" = "deny"
 "/work" = "deny"
 
 [permissions.mdbench-control.network]
@@ -61,7 +61,7 @@ extends = ":workspace"
 "/home" = "deny"
 "/host-home" = "deny"
 "/out" = "deny"
-"/proc/*/environ" = "deny"
+"/proc" = "deny"
 glob_scan_max_depth = 5
 
 [permissions.mdbench-trial.filesystem.":workspace_roots"]
@@ -84,7 +84,7 @@ extends = ":workspace"
 "/home" = "deny"
 "/host-home" = "deny"
 "/out" = "deny"
-"/proc/*/environ" = "deny"
+"/proc" = "deny"
 glob_scan_max_depth = 5
 
 [permissions.mdbench-trial-network.filesystem.":workspace_roots"]
