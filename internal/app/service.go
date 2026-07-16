@@ -1,17 +1,21 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/nafiskhan/mdbench/internal/analyze"
+	"github.com/nafiskhan/mdbench/internal/harness"
 	"github.com/nafiskhan/mdbench/internal/model"
 	"github.com/nafiskhan/mdbench/internal/store"
+	"github.com/nafiskhan/mdbench/internal/suite"
 )
 
 type Service struct {
-	analyzer analyze.Analyzer
-	store    *store.Store
+	analyzer  analyze.Analyzer
+	store     *store.Store
+	generator harness.Generator
 }
 
 func NewService(config Config) (*Service, error) {
@@ -30,8 +34,16 @@ func NewService(config Config) (*Service, error) {
 			MaxBundleBytes:   config.MaxBundleBytes,
 			MaxBundleFiles:   config.MaxBundleFiles,
 		},
-		store: artifactStore,
+		store: artifactStore, generator: harness.NewFakeGenerator(),
 	}, nil
+}
+
+func (s *Service) GenerateSuite(ctx context.Context, artifact model.Artifact, caseCount int, fixtureIDs []string) (suite.Draft, error) {
+	draft, err := s.generator.GenerateSuite(ctx, harness.GenerateRequest{Artifact: artifact, CaseCount: caseCount, FixtureIDs: fixtureIDs})
+	if err != nil {
+		return suite.Draft{}, fmt.Errorf("generate suite: %w", err)
+	}
+	return draft, nil
 }
 
 func (s *Service) InspectFile(path, label string) (model.Artifact, error) {
