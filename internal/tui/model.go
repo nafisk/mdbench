@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -10,8 +11,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/nafiskhan/mdbench/internal/app"
+	"github.com/nafiskhan/mdbench/internal/fixture"
 	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/suite"
 	"github.com/nafiskhan/mdbench/internal/tui/component/filebrowser"
+	"github.com/nafiskhan/mdbench/internal/tui/component/suitereview"
 )
 
 type screen int
@@ -24,6 +28,10 @@ const (
 	screenLoading
 	screenInspect
 	screenSaved
+	screenSuiteChoice
+	screenSuiteConfig
+	screenSuiteReview
+	screenSuiteReady
 	screenError
 )
 
@@ -50,6 +58,11 @@ type savedMsg struct {
 	err  error
 }
 
+type suiteMsg struct {
+	draft suite.Draft
+	err   error
+}
+
 type Model struct {
 	service *app.Service
 	config  app.Config
@@ -62,6 +75,8 @@ type Model struct {
 	styles       styles
 	homeCursor   int
 	sourceCursor int
+	suiteCursor  int
+	configCursor int
 	status       string
 	err          error
 
@@ -75,6 +90,11 @@ type Model struct {
 	showBundle    bool
 	inspectOffset int
 	savedPath     string
+	fixtures      []fixture.Snapshot
+	fixtureOn     map[string]bool
+	caseCount     int
+	draft         suite.Draft
+	suiteReview   suitereview.Model
 }
 
 func New(service *app.Service, config app.Config) Model {
@@ -97,6 +117,11 @@ func New(service *app.Service, config app.Config) Model {
 	label.SetWidth(48)
 
 	appStyles := newStyles(true)
+	fixtures, _ := fixture.Catalog()
+	fixtureOn := make(map[string]bool, len(fixtures))
+	for _, value := range fixtures {
+		fixtureOn[value.ID] = true
+	}
 	return Model{
 		service:     service,
 		config:      config,
@@ -106,6 +131,9 @@ func New(service *app.Service, config app.Config) Model {
 		fileBrowser: filebrowser.New(startDir, fileBrowserStyles(appStyles)),
 		paste:       paste,
 		labelInput:  label,
+		fixtures:    fixtures,
+		fixtureOn:   fixtureOn,
+		caseCount:   6,
 	}
 }
 
@@ -123,6 +151,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.dark = msg.IsDark()
 		m.styles = newStyles(m.dark)
 		m.fileBrowser.SetStyles(fileBrowserStyles(m.styles))
+		m.suiteReview.SetStyles(suiteReviewStyles(m.styles))
 		return m, nil
 	case filebrowser.SelectedMsg:
 		updated, cmd, _ := m.inspectFile(msg.Path)
@@ -147,6 +176,22 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.savedPath, m.screen = msg.path, screenSaved
 		return m, nil
+	case suiteMsg:
+		if msg.err != nil {
+			m.err, m.screen = msg.err, screenError
+			return m, nil
+		}
+		m.draft = msg.draft
+		m.suiteReview = suitereview.New(msg.draft, suiteReviewStyles(m.styles))
+		m.suiteReview.SetSize(m.inputWidth(), max(6, m.canvasHeight()-8))
+		m.screen, m.status = screenSuiteReview, ""
+		return m, nil
+	case suitereview.ContinueMsg:
+		m.draft, m.screen = msg.Draft, screenSuiteReady
+		return m, nil
+	case suitereview.CanceledMsg:
+		m.screen = screenSuiteConfig
+		return m, nil
 	}
 
 	key, isKey := message.(tea.KeyPressMsg)
@@ -169,6 +214,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.editingLabel {
 			m.labelInput, cmd = m.labelInput.Update(message)
 		}
+	case screenSuiteReview:
+		m.suiteReview, cmd = m.suiteReview.Update(message)
 	}
 	return m, cmd
 }
@@ -284,12 +331,91 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			}, true
 		}
 	case screenSaved:
+		if value == "enter" {
+			m.screen, m.suiteCursor, m.status = screenSuiteChoice, 0, ""
+			return m, nil, true
+		}
 		if value == "h" || value == "esc" {
 			m.screen, m.artifact, m.savedPath, m.status = screenHome, model.Artifact{}, "", ""
 			return m, nil, true
 		}
 		if value == "q" {
 			return m, tea.Quit, true
+		}
+	case screenSuiteChoice:
+		switch value {
+		case "esc":
+			m.screen, m.status = screenSaved, ""
+			return m, nil, true
+		case "up":
+			m.suiteCursor = max(0, m.suiteCursor-1)
+			return m, nil, true
+		case "down":
+			m.suiteCursor = min(1, m.suiteCursor+1)
+			return m, nil, true
+		case "enter":
+			if m.suiteCursor == 0 {
+				m.screen, m.configCursor, m.status = screenSuiteConfig, 0, ""
+			} else {
+				m.status = "No frozen suites yet. Generate and freeze one first."
+			}
+			return m, nil, true
+		}
+	case screenSuiteConfig:
+		last := len(m.fixtures) + 1
+		switch value {
+		case "esc":
+			m.screen, m.status = screenSuiteChoice, ""
+			return m, nil, true
+		case "up":
+			m.configCursor = max(0, m.configCursor-1)
+			return m, nil, true
+		case "down":
+			m.configCursor = min(last, m.configCursor+1)
+			return m, nil, true
+		case "left":
+			if m.configCursor == 0 {
+				m.caseCount = max(1, m.caseCount-1)
+			}
+			return m, nil, true
+		case "right":
+			if m.configCursor == 0 {
+				m.caseCount = min(12, m.caseCount+1)
+			}
+			return m, nil, true
+		case " ", "space":
+			if m.configCursor > 0 && m.configCursor <= len(m.fixtures) {
+				id := m.fixtures[m.configCursor-1].ID
+				m.fixtureOn[id] = !m.fixtureOn[id]
+			}
+			return m, nil, true
+		case "enter":
+			if m.configCursor > 0 && m.configCursor <= len(m.fixtures) {
+				id := m.fixtures[m.configCursor-1].ID
+				m.fixtureOn[id] = !m.fixtureOn[id]
+				return m, nil, true
+			}
+			if m.configCursor == last {
+				fixtureIDs := m.selectedFixtureIDs()
+				if len(fixtureIDs) == 0 {
+					m.status = "Select at least one fixture."
+					return m, nil, true
+				}
+				m.returnTo, m.screen, m.status = screenSuiteConfig, screenLoading, "Generating test suite..."
+				return m, func() tea.Msg {
+					draft, err := m.service.GenerateSuite(context.Background(), m.artifact, m.caseCount, fixtureIDs)
+					return suiteMsg{draft: draft, err: err}
+				}, true
+			}
+		}
+	case screenSuiteReady:
+		if value == "esc" {
+			m.screen = screenSuiteReview
+			return m, nil, true
+		}
+		if value == "enter" {
+			m.status = "Suite freezing is the next feature in this stage."
+			return m, nil, true
 		}
 	case screenError:
 		if value == "esc" || value == "enter" {
@@ -323,12 +449,12 @@ func (m Model) inspectPaste() (Model, tea.Cmd, bool) {
 }
 
 func (m *Model) resizeInputs() {
-	canvas := m.canvasWidth()
-	inputWidth := max(20, canvas-8)
+	inputWidth := m.inputWidth()
 	m.fileBrowser.SetSize(inputWidth, max(5, m.canvasHeight()-11))
 	m.labelInput.SetWidth(min(48, inputWidth))
 	m.paste.SetWidth(inputWidth)
 	m.paste.SetHeight(max(5, min(14, m.canvasHeight()-9)))
+	m.suiteReview.SetSize(inputWidth, max(6, m.canvasHeight()-8))
 }
 
 func (m Model) View() tea.View {
@@ -392,8 +518,16 @@ func (m Model) body(available int) string {
 		return m.inspectBody(available)
 	case screenSaved:
 		return strings.Join([]string{
-			m.styles.success.Render("Input saved"), "", m.savedPath, "", m.styles.muted.Render("Test generation arrives in Stage 2."),
+			m.styles.success.Render("Input saved"), "", m.savedPath, "", m.styles.muted.Render("Continue to choose or generate a test suite."),
 		}, "\n")
+	case screenSuiteChoice:
+		return m.suiteChoiceBody()
+	case screenSuiteConfig:
+		return m.suiteConfigBody()
+	case screenSuiteReview:
+		return m.suiteReview.View()
+	case screenSuiteReady:
+		return strings.Join([]string{m.styles.success.Render("Suite review complete"), "", fmt.Sprintf("%d enabled cases are ready to freeze.", enabledCases(m.draft)), "", m.styles.muted.Render(m.status)}, "\n")
 	case screenError:
 		message := "Unknown error"
 		if m.err != nil {
@@ -490,7 +624,15 @@ func (m Model) footer() string {
 		}
 		return "enter continue   b files   e version   esc back"
 	case screenSaved:
-		return "h home   q quit"
+		return "enter continue   h home   q quit"
+	case screenSuiteChoice:
+		return "↑↓ move  enter select  esc input"
+	case screenSuiteConfig:
+		return "↑↓ move  ←→ cases  space toggle  enter select  esc back"
+	case screenSuiteReview:
+		return m.suiteReview.Footer()
+	case screenSuiteReady:
+		return "enter continue  esc review"
 	case screenError:
 		return "enter/esc back"
 	default:
@@ -507,7 +649,11 @@ func (m Model) flowName() string {
 	case screenInspect:
 		return "new evaluation / review"
 	case screenSaved:
-		return "new evaluation / saved"
+		return "new evaluation / input saved"
+	case screenSuiteChoice, screenSuiteConfig:
+		return "new evaluation / tests"
+	case screenSuiteReview, screenSuiteReady:
+		return "new evaluation / review tests"
 	case screenError:
 		return "error"
 	default:
@@ -537,6 +683,73 @@ func (m Model) canvasHeight() int {
 	return min(30, height)
 }
 
+func (m Model) inputWidth() int { return max(20, m.canvasWidth()-8) }
+
+func (m Model) selectedFixtureIDs() []string {
+	result := []string{}
+	for _, value := range m.fixtures {
+		if m.fixtureOn[value.ID] {
+			result = append(result, value.ID)
+		}
+	}
+	return result
+}
+
+func (m Model) suiteChoiceBody() string {
+	options := []string{"Generate new suite", "Reuse frozen suite"}
+	lines := []string{m.styles.accent.Render("Choose test suite"), m.styles.muted.Render("Generate a reviewable draft or reuse the exact tests from an earlier run."), ""}
+	for index, option := range options {
+		prefix, style := "  ", m.styles.text
+		if index == m.suiteCursor {
+			prefix, style = "> ", m.styles.selected
+		}
+		lines = append(lines, prefix+style.Render(option))
+	}
+	if m.status != "" {
+		lines = append(lines, "", m.styles.warning.Render(m.status))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) suiteConfigBody() string {
+	lines := []string{m.styles.accent.Render("Generate test suite"), m.styles.muted.Render("Choose the draft size and allowed starter workspaces."), ""}
+	caseLine := fmt.Sprintf("  Cases                  %d", m.caseCount)
+	if m.configCursor == 0 {
+		caseLine = m.styles.selected.Render(">" + caseLine[1:])
+	}
+	lines = append(lines, caseLine, "  Fixtures")
+	for index, value := range m.fixtures {
+		mark := "[ ]"
+		if m.fixtureOn[value.ID] {
+			mark = "[x]"
+		}
+		line := fmt.Sprintf("    %s %-20s %s", mark, value.Name, shortHash(value.ContentSHA))
+		if m.configCursor == index+1 {
+			line = m.styles.selected.Render("  >" + line[3:])
+		}
+		lines = append(lines, line)
+	}
+	continueLine := "  Generate draft"
+	if m.configCursor == len(m.fixtures)+1 {
+		continueLine = m.styles.selected.Render("> Generate draft")
+	}
+	lines = append(lines, "", continueLine)
+	if m.status != "" {
+		lines = append(lines, "", m.styles.warning.Render(m.status))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func enabledCases(draft suite.Draft) int {
+	count := 0
+	for _, testCase := range draft.Cases {
+		if testCase.Enabled {
+			count++
+		}
+	}
+	return count
+}
+
 func newStyles(dark bool) styles {
 	text, muted, border, accent, success, warning, failure := "#1B1F23", "#667078", "#D7DBDF", "#D94F00", "#1A7F37", "#9A6700", "#CF222E"
 	if dark {
@@ -558,6 +771,10 @@ func newStyles(dark bool) styles {
 
 func fileBrowserStyles(value styles) filebrowser.Styles {
 	return filebrowser.Styles{Text: value.text, Muted: value.muted, Selected: value.selected}
+}
+
+func suiteReviewStyles(value styles) suitereview.Styles {
+	return suitereview.Styles{Text: value.text, Muted: value.muted, Selected: value.selected, Accent: value.accent, Warning: value.warning}
 }
 
 func shortHash(hash string) string {
