@@ -1,0 +1,91 @@
+package sandbox
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+	"time"
+)
+
+func TestStartArgumentsApplyContainerBoundary(t *testing.T) {
+	args, err := startArgs(ContainerSpec{
+		Name: "mdbench-trial", Image: "example@sha256:abc", WorkDir: "/work", User: "10001:10001",
+		Hostname: "mdbench", Network: NetworkBridge, MemoryBytes: 1 << 30, CPUs: "1", PidsLimit: 128,
+		Tmpfs:       []TmpfsMount{{Target: "/work", SizeBytes: 64 << 20}},
+		Mounts:      []BindMount{{Source: "/safe/control", Target: "/control", ReadOnly: true}},
+		Environment: []string{"CODEX_HOME=/codex-home"}, Command: []string{"sleep", "infinity"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"run", "--detach", "--name", "mdbench-trial", "--read-only", "--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges", "--network", "bridge", "--memory", "1073741824",
+		"--cpus", "1", "--pids-limit", "128", "--workdir", "/work", "--user", "10001:10001",
+		"--hostname", "mdbench", "--tmpfs", "/work:rw,nosuid,nodev,size=67108864,mode=0700",
+		"--mount", "type=bind,src=/safe/control,dst=/control,readonly", "--env", "CODEX_HOME=/codex-home",
+		"example@sha256:abc", "sleep", "infinity",
+	}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("unexpected args:\n got %#v\nwant %#v", args, want)
+	}
+}
+
+func TestWithContainerCleansUpAfterCancellation(t *testing.T) {
+	runtime := &fakeRuntime{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := WithContainer(ctx, runtime, ContainerSpec{StopTimeout: time.Second}, func(ctx context.Context, containerID string) error {
+		if containerID != "container-1" {
+			t.Fatalf("container ID = %q", containerID)
+		}
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want cancellation", err)
+	}
+	if want := []string{"start", "stop", "remove"}; !reflect.DeepEqual(runtime.calls, want) {
+		t.Fatalf("calls = %v, want %v", runtime.calls, want)
+	}
+}
+
+func TestCleanupKillsWhenGracefulStopFails(t *testing.T) {
+	runtime := &fakeRuntime{stopErr: errors.New("stuck")}
+	err := Cleanup(context.Background(), runtime, "container-1", time.Second)
+	if err == nil {
+		t.Fatal("expected cleanup error")
+	}
+	if want := []string{"stop", "kill", "remove"}; !reflect.DeepEqual(runtime.calls, want) {
+		t.Fatalf("calls = %v, want %v", runtime.calls, want)
+	}
+}
+
+type fakeRuntime struct {
+	calls   []string
+	stopErr error
+}
+
+func (f *fakeRuntime) Name() string                                      { return "fake" }
+func (f *fakeRuntime) Version(context.Context) (string, error)           { return "fake 1", nil }
+func (f *fakeRuntime) ImageExists(context.Context, string) (bool, error) { return true, nil }
+func (f *fakeRuntime) Start(context.Context, ContainerSpec) (string, error) {
+	f.calls = append(f.calls, "start")
+	return "container-1", nil
+}
+func (f *fakeRuntime) Exec(context.Context, string, ProcessSpec) (ProcessResult, error) {
+	f.calls = append(f.calls, "exec")
+	return ProcessResult{}, nil
+}
+func (f *fakeRuntime) Stop(context.Context, string, time.Duration) error {
+	f.calls = append(f.calls, "stop")
+	return f.stopErr
+}
+func (f *fakeRuntime) Kill(context.Context, string) error {
+	f.calls = append(f.calls, "kill")
+	return nil
+}
+func (f *fakeRuntime) Remove(context.Context, string) error {
+	f.calls = append(f.calls, "remove")
+	return nil
+}

@@ -91,11 +91,18 @@ Likely files:
 
 Dependencies: Stage 1.
 
+Feature commits:
+
+- `add bounded container runtime`
+- `add pinned evaluation image`
+- `add Codex permission profiles`
+- `add runtime preflight and canary cache`
+
 Stage verification:
 
 - Run one fake-runtime lifecycle test and one real local boundary smoke test when Docker or Podman is available.
 - Confirm denied credential access, denied network access, bounded workspace writes, and full cancellation.
-- Commit as `build isolated container runtime`.
+- Run the focused checks after all four feature commits, then complete one manual boundary checkpoint.
 
 ## [ ] Stage 4: Evaluation, assertions, scoring, and persistence
 
