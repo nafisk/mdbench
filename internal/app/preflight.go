@@ -38,6 +38,7 @@ type PreflightReport struct {
 	Image          string           `json:"image"`
 	CodexVersion   string           `json:"codex_version"`
 	PermissionSHA  string           `json:"permission_sha"`
+	RuntimePolicy  string           `json:"runtime_policy"`
 	Authentication string           `json:"authentication"`
 	CanaryCacheKey string           `json:"canary_cache_key"`
 	Checks         []PreflightCheck `json:"checks"`
@@ -137,8 +138,10 @@ func (p Preflight) Run(ctx context.Context) (PreflightReport, error) {
 		return failPreflight(report, "permission-profile", "The mdbench permission profile is invalid.", err)
 	}
 	report.PermissionSHA = permissionSHA
+	report.RuntimePolicy = sandbox.CodexRuntimePolicyVersion
 	report.CodexVersion = sandbox.ExpectedCodexVersion
-	report.CanaryCacheKey = preflightCacheKey(runtimeClient.Name(), runtimeVersion, immutableImage, sandbox.ExpectedCodexVersion, permissionSHA)
+	// ponytail: the policy is fixed for the MVP; bump its version whenever the trusted launcher flags change.
+	report.CanaryCacheKey = preflightCacheKey(runtimeClient.Name(), runtimeVersion, immutableImage, sandbox.ExpectedCodexVersion, permissionSHA, sandbox.CodexRuntimePolicyVersion)
 
 	record, cached, err := loadCanary(p.CacheDir, report.CanaryCacheKey)
 	if err != nil {
@@ -174,7 +177,7 @@ func (p Preflight) Run(ctx context.Context) (PreflightReport, error) {
 		return failPreflight(report, "permission-profile", "The control-read probe could not be prepared.", err)
 	}
 
-	spec, err := sandbox.DefaultContainerSpec(immutableImage)
+	spec, err := sandbox.CodexContainerSpec(immutableImage)
 	if err != nil {
 		return failPreflight(report, "image", "The immutable image could not be applied.", err)
 	}
@@ -219,7 +222,7 @@ func (p Preflight) Run(ctx context.Context) (PreflightReport, error) {
 		}
 		report.Checks = append(report.Checks, passedCheck("permission-profile", "Codex accepted and enforced mdbench-trial"))
 		failingCheck = "boundary-canary"
-		if err := json.Unmarshal([]byte(profileResult.Output), &probe); err != nil {
+		if err := parseBoundaryProbe(profileResult.Output, &probe); err != nil {
 			return fmt.Errorf("parse boundary probe: %w", err)
 		}
 		return probe.validate()
@@ -255,6 +258,26 @@ func codexVersionLine(output string) string {
 		}
 	}
 	return strings.TrimSpace(output)
+}
+
+func parseBoundaryProbe(output string, probe *boundaryProbe) error {
+	var lastErr error
+	lines := strings.Split(output, "\n")
+	for index := len(lines) - 1; index >= 0; index-- {
+		line := strings.TrimSpace(lines[index])
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), probe); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New("boundary probe returned no JSON object")
 }
 
 func DetectCodexAuth() (AuthStatus, error) {

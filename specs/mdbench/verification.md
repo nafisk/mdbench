@@ -50,7 +50,9 @@ Known gaps:
 
 ## Stage 3: Secure container runtime
 
-Status: In progress — nested Codex compatibility approved
+Status: Complete
+
+Completed: 2026-07-16
 
 Evidence:
 
@@ -59,8 +61,12 @@ Evidence:
 - The local image builds from pinned Node and Go digests, exact OS package versions, and the locked official `@openai/codex` 0.144.3 package.
 - The image reports Codex 0.144.3, Node 22.23.1, Python 3.11.2, and Go 1.26.5.
 - A real Colima/Docker boundary probe confirms a writable size-limited `/work`, a read-only root, readable control input, no host or credential path, and no network under `--network none`.
-- The live preflight resolves an immutable local image digest, validates image labels and Codex version, and fails closed before model calls when the inner Codex permission sandbox cannot start.
+- The live preflight resolves an immutable local image digest, validates image labels, Codex version, and saved-auth metadata, then enforces the named Bubblewrap permission profile.
+- The real nested canary confirms bounded workspace writes, readable control input, denied credential and host paths, denied command network, and successful cache reuse.
+- The final Codex launcher adds `SYS_ADMIN`, `SYS_CHROOT`, `SETUID`, `SETGID`, `SYS_PTRACE`, and `NET_ADMIN`; `NET_RAW` is not granted. Removing `SYS_CHROOT` or `SYS_PTRACE` caused the live canary to fail.
+- Strict assertion-style containers still use `--cap-drop ALL`, `no-new-privileges`, and `--network none`; their live boundary test passes after the Codex compatibility change.
+- Feature commits: `1b6c6d2`, `765a9e0`, `ff419fe`, `ec2c3d4`, plus the final nested-sandbox commit.
 
-Approved adjustment:
+Security boundary:
 
-- Current Codex on Linux uses Bubblewrap. The user approved a Codex-launcher-only compatibility policy after the strict Colima canary proved that `--cap-drop ALL` and `no-new-privileges` block namespace creation. Assertions and other non-Codex containers keep the strict policy. The compatibility policy must still pass the credential, host, workspace, and network canary before model calls.
+- Current Codex on Linux uses Bubblewrap. The user approved a Codex-launcher-only compatibility policy after the strict Colima canary proved that `--cap-drop ALL` and `no-new-privileges` block namespace creation. Assertions and other non-Codex containers keep the strict policy. The compatibility policy remains fail-closed: no model call can start without a matching successful canary.

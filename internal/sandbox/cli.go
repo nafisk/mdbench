@@ -153,11 +153,25 @@ func startArgs(spec ContainerSpec) ([]string, error) {
 	args := []string{
 		"run", "--detach", "--name", spec.Name,
 		"--read-only", "--cap-drop", "ALL",
-		"--security-opt", "no-new-privileges",
 		"--network", string(spec.Network),
 		"--memory", strconv.FormatInt(spec.MemoryBytes, 10),
 		"--cpus", spec.CPUs,
 		"--pids-limit", strconv.Itoa(spec.PidsLimit),
+	}
+	if spec.NestedCodexSandbox {
+		args = append(args,
+			"--init",
+			"--cap-add", "SYS_ADMIN",
+			"--cap-add", "SYS_CHROOT",
+			"--cap-add", "SETUID",
+			"--cap-add", "SETGID",
+			"--cap-add", "SYS_PTRACE",
+			"--cap-add", "NET_ADMIN",
+			"--security-opt", "seccomp=unconfined",
+			"--security-opt", "apparmor=unconfined",
+		)
+	} else {
+		args = append(args, "--security-opt", "no-new-privileges")
 	}
 	if spec.WorkDir != "" {
 		args = append(args, "--workdir", spec.WorkDir)

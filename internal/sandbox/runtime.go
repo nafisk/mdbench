@@ -41,20 +41,21 @@ func (i ImageInfo) ImmutableReference() (string, error) {
 }
 
 type ContainerSpec struct {
-	Name        string
-	Image       string
-	WorkDir     string
-	User        string
-	Hostname    string
-	Network     NetworkMode
-	MemoryBytes int64
-	CPUs        string
-	PidsLimit   int
-	Tmpfs       []TmpfsMount
-	Mounts      []BindMount
-	Environment []string
-	Command     []string
-	StopTimeout time.Duration
+	Name               string
+	Image              string
+	WorkDir            string
+	User               string
+	Hostname           string
+	Network            NetworkMode
+	MemoryBytes        int64
+	CPUs               string
+	PidsLimit          int
+	Tmpfs              []TmpfsMount
+	Mounts             []BindMount
+	Environment        []string
+	Command            []string
+	StopTimeout        time.Duration
+	NestedCodexSandbox bool
 }
 
 type NetworkMode string

@@ -70,7 +70,7 @@ Stage verification:
 - Run focused tests for suite validation, canonical hashing, and revision immutability.
 - Manually walk the generate and reuse paths to the execution plan.
 
-## [ ] Stage 3: Secure container runtime
+## [x] Stage 3: Secure container runtime
 
 Requirements: US-05 and US-06; sections 7.2, 11, and 12.
 

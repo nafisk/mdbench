@@ -26,6 +26,7 @@ RUN apt-get update \
         passwd=1:4.13+dfsg1-1+deb12u2 \
         python3=3.11.2-1+b1 \
         ripgrep=13.0.0-4+b2 \
+    && chmod u+s /usr/bin/bwrap \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=probe-build /usr/local/go/ /usr/local/go/
@@ -34,6 +35,7 @@ RUN test "$(node -p "require('/opt/codex-install/package.json').dependencies['@o
     && cd /opt/codex-install \
     && npm ci --omit=dev --ignore-scripts=false \
     && ln -s /opt/codex-install/node_modules/.bin/codex /usr/local/bin/codex \
+    && node -e 'const fs=require("fs"); const triple=process.arch==="arm64"?"aarch64-unknown-linux-musl":process.arch==="x64"?"x86_64-unknown-linux-musl":null; if(!triple) process.exit(1); const packageName=process.arch==="arm64"?"codex-linux-arm64":"codex-linux-x64"; fs.symlinkSync(`/opt/codex-install/node_modules/@openai/${packageName}/vendor/${triple}/bin/codex`, "/usr/local/bin/codex-linux-sandbox")' \
     && npm cache clean --force
 
 RUN /usr/sbin/groupadd --gid 10001 mdbench \

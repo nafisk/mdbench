@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,14 +22,52 @@ func TestStartArgumentsApplyContainerBoundary(t *testing.T) {
 	}
 	want := []string{
 		"run", "--detach", "--name", "mdbench-trial", "--read-only", "--cap-drop", "ALL",
-		"--security-opt", "no-new-privileges", "--network", "bridge", "--memory", "1073741824",
-		"--cpus", "1", "--pids-limit", "128", "--workdir", "/work", "--user", "10001:10001",
+		"--network", "bridge", "--memory", "1073741824", "--cpus", "1", "--pids-limit", "128",
+		"--security-opt", "no-new-privileges", "--workdir", "/work", "--user", "10001:10001",
 		"--hostname", "mdbench", "--tmpfs", "/work:rw,nosuid,nodev,size=67108864,mode=0700,uid=10001,gid=10001",
 		"--mount", "type=bind,src=/safe/control,dst=/control,readonly", "--env", "CODEX_HOME=/codex-home",
 		"example@sha256:abc", "sleep", "infinity",
 	}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("unexpected args:\n got %#v\nwant %#v", args, want)
+	}
+}
+
+func TestCodexContainerArgumentsScopeNestedSandboxException(t *testing.T) {
+	image := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	spec, err := CodexContainerSpec(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := startArgs(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, required := range []string{
+		"--init", "--cap-add SYS_ADMIN", "--cap-add SYS_CHROOT", "--cap-add SETUID",
+		"--cap-add SETGID", "--cap-add SYS_PTRACE", "--cap-add NET_ADMIN", "--security-opt seccomp=unconfined",
+		"--security-opt apparmor=unconfined",
+	} {
+		if !strings.Contains(joined, required) {
+			t.Errorf("nested Codex args are missing %q: %s", required, joined)
+		}
+	}
+	if strings.Contains(joined, "no-new-privileges") {
+		t.Fatal("no-new-privileges would prevent the approved setuid Bubblewrap launcher")
+	}
+
+	strict, err := DefaultContainerSpec(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strictArgs, err := startArgs(strict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strictJoined := strings.Join(strictArgs, " ")
+	if !strings.Contains(strictJoined, "no-new-privileges") || strings.Contains(strictJoined, "--cap-add") || strings.Contains(strictJoined, "unconfined") {
+		t.Fatalf("strict container inherited Codex exception: %s", strictJoined)
 	}
 }
 

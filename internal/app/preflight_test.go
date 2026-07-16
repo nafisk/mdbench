@@ -85,6 +85,17 @@ func TestCodexVersionLineIgnoresBoundedWarnings(t *testing.T) {
 	}
 }
 
+func TestParseBoundaryProbeIgnoresBoundedWarnings(t *testing.T) {
+	output := "WARNING: read-only home\n{\"workspace_write\":true,\"control_read\":true}\n"
+	var probe boundaryProbe
+	if err := parseBoundaryProbe(output, &probe); err != nil {
+		t.Fatal(err)
+	}
+	if !probe.WorkspaceWrite || !probe.ControlRead {
+		t.Fatalf("unexpected probe: %#v", probe)
+	}
+}
+
 func TestLiveContainerPreflight(t *testing.T) {
 	base := os.Getenv("MDBENCH_LIVE_PREFLIGHT_CACHE")
 	if base == "" {
@@ -99,7 +110,7 @@ func TestLiveContainerPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preflight := Preflight{CacheDir: cacheDir, Image: sandbox.DefaultImageTag, Runtime: runtimeClient, Auth: &AuthStatus{Kind: "api-key"}}
+	preflight := Preflight{CacheDir: cacheDir, Image: sandbox.DefaultImageTag, Runtime: runtimeClient}
 	report, err := preflight.Run(context.Background())
 	if err != nil {
 		t.Fatalf("live preflight failed: %v\nreport: %#v", err, report)
@@ -107,6 +118,74 @@ func TestLiveContainerPreflight(t *testing.T) {
 	if !report.Ready {
 		t.Fatalf("live preflight is not ready: %#v", report)
 	}
+	cached, err := preflight.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cached.Ready || checkStatus(cached.Checks, "boundary-canary") != CheckCached {
+		t.Fatalf("live canary was not reused: %#v", cached)
+	}
+}
+
+func TestLiveStrictContainerBoundary(t *testing.T) {
+	base := os.Getenv("MDBENCH_LIVE_PREFLIGHT_CACHE")
+	if base == "" {
+		t.Skip("set MDBENCH_LIVE_PREFLIGHT_CACHE to a host directory shared with Docker or Podman")
+	}
+	root, err := os.MkdirTemp(base, "mdbench-live-strict-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	controlDir := filepath.Join(root, "control")
+	if err := os.MkdirAll(controlDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(controlDir, "public.txt"), []byte("strict boundary\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtimeClient, err := sandbox.Detect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := runtimeClient.InspectImage(context.Background(), sandbox.DefaultImageTag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	immutable, err := image.ImmutableReference()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := sandbox.DefaultContainerSpec(immutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Name = "mdbench-live-strict-" + time.Now().Format("150405.000000")
+	spec.Network = sandbox.NetworkNone
+	spec.Mounts = append(spec.Mounts, sandbox.BindMount{Source: controlDir, Target: "/control", ReadOnly: true})
+	var probe boundaryProbe
+	err = sandbox.WithContainer(context.Background(), runtimeClient, spec, func(ctx context.Context, containerID string) error {
+		result, err := runtimeClient.Exec(ctx, containerID, sandbox.ProcessSpec{Argv: []string{"mdbench-boundary-probe"}})
+		if err != nil {
+			return err
+		}
+		return parseBoundaryProbe(result.Output, &probe)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := probe.validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkStatus(checks []PreflightCheck, name string) CheckStatus {
+	for _, check := range checks {
+		if check.Name == name {
+			return check.Status
+		}
+	}
+	return ""
 }
 
 func checkStatuses(checks []PreflightCheck) []CheckStatus {

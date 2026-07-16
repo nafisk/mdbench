@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	DefaultImageTag      = "mdbench-eval:0.1.0"
-	ExpectedCodexVersion = "0.144.3"
-	ImageLabelVersion    = "0.1.0"
+	DefaultImageTag           = "mdbench-eval:0.1.0"
+	ExpectedCodexVersion      = "0.144.3"
+	ImageLabelVersion         = "0.1.0"
+	CodexRuntimePolicyVersion = "codex-nested-v1"
 )
 
 //go:embed image.json
@@ -75,6 +76,15 @@ func DefaultContainerSpec(image string) (ContainerSpec, error) {
 		Command:     []string{"sleep", "infinity"},
 		StopTimeout: 3 * time.Second,
 	}, nil
+}
+
+func CodexContainerSpec(image string) (ContainerSpec, error) {
+	spec, err := DefaultContainerSpec(image)
+	if err != nil {
+		return ContainerSpec{}, err
+	}
+	spec.NestedCodexSandbox = true
+	return spec, nil
 }
 
 func validDigestReference(reference string) bool {
