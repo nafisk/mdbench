@@ -233,7 +233,7 @@ func (m Model) Footer() string {
 		if m.width < 60 {
 			return "↑↓ enter  space on/off  tab scores  f freeze"
 		}
-		return "↑↓ enter  space on/off  [ ] order  +/- weight  tab scores  r rubric  f freeze"
+		return "↑↓ enter  space  [ ] order  +/- weight  tab scores  r rubric  f freeze"
 	case modeCaseDetail:
 		return "↑↓ scroll  e edit  space on/off  esc cases"
 	case modeDimensions:

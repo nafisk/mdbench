@@ -30,21 +30,13 @@ Likely files:
 
 Dependencies: none.
 
-Feature commits:
-
-- `add built-in fixtures and suite contract`
-- `add deterministic suite generation harness`
-- `add guided suite review flow`
-- `add immutable suite revisions and reuse`
-- `add evaluation execution plan`
-
 Stage verification:
 
 - Run focused tests for artifact hashing, secret blocking, and atomic storage.
 - Manually open the TUI and complete file and paste intake once.
 - Commit as `build foundation and artifact intake`.
 
-## [ ] Stage 2: Test suites and guided planning flow
+## [x] Stage 2: Test suites and guided planning flow
 
 Requirements: US-03, US-04, US-05; sections 4.2, 5.2 steps 3-6, and 6.
 
@@ -64,6 +56,14 @@ Likely files:
 - suite schemas under an internal asset package
 
 Dependencies: Stage 1.
+
+Feature commits:
+
+- `add built-in fixtures and suite contract`
+- `add deterministic suite generation harness`
+- `add guided suite review flow`
+- `add immutable suite revisions and reuse`
+- `add evaluation execution plan`
 
 Stage verification:
 

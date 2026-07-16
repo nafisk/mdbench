@@ -10,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/nafiskhan/mdbench/internal/app"
 	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/plan"
+	"github.com/nafiskhan/mdbench/internal/tui/component/runconfig"
 	"github.com/nafiskhan/mdbench/internal/tui/component/suitereview"
 )
 
@@ -76,10 +78,23 @@ func TestGenerateSuiteFlowReachesReview(t *testing.T) {
 	if result.screen != screenSuiteReuse || len(result.suiteList) != 1 {
 		t.Fatalf("reuse listed %d suites on screen %d", len(result.suiteList), result.screen)
 	}
+	revisionFlow, _, _ := result.handleKey(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	if revisionFlow.screen != screenSuiteReview || revisionFlow.draft.ID != result.suiteList[0].ID {
+		t.Fatal("edit-revision path did not reopen a draft review")
+	}
 	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if result.screen != screenSuiteReady {
 		t.Fatalf("reuse confirmation reached screen %d", result.screen)
+	}
+	result, _, _ = result.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if result.screen != screenRunConfig {
+		t.Fatalf("configuration started on screen %d", result.screen)
+	}
+	updated, _ = result.Update(runconfig.ContinueMsg{Config: plan.DefaultConfig()})
+	result = updated.(Model)
+	if result.screen != screenExecutionPlan || result.executionPlan.EstimatedModelCalls != 12 {
+		t.Fatalf("plan reached screen %d with %d calls", result.screen, result.executionPlan.EstimatedModelCalls)
 	}
 }
 

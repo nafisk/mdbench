@@ -13,8 +13,10 @@ import (
 	"github.com/nafiskhan/mdbench/internal/app"
 	"github.com/nafiskhan/mdbench/internal/fixture"
 	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/plan"
 	"github.com/nafiskhan/mdbench/internal/suite"
 	"github.com/nafiskhan/mdbench/internal/tui/component/filebrowser"
+	"github.com/nafiskhan/mdbench/internal/tui/component/runconfig"
 	"github.com/nafiskhan/mdbench/internal/tui/component/suitereview"
 )
 
@@ -34,6 +36,8 @@ const (
 	screenSuiteReuse
 	screenSuiteReuseConfirm
 	screenSuiteReady
+	screenRunConfig
+	screenExecutionPlan
 	screenError
 )
 
@@ -112,6 +116,9 @@ type Model struct {
 	suiteList     []suite.Frozen
 	suitePath     string
 	suiteReview   suitereview.Model
+	runConfig     runconfig.Model
+	executionPlan plan.ExecutionPlan
+	planConfirmed bool
 }
 
 func New(service *app.Service, config app.Config) Model {
@@ -169,6 +176,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.styles = newStyles(m.dark)
 		m.fileBrowser.SetStyles(fileBrowserStyles(m.styles))
 		m.suiteReview.SetStyles(suiteReviewStyles(m.styles))
+		m.runConfig.SetStyles(runConfigStyles(m.styles))
 		return m, nil
 	case filebrowser.SelectedMsg:
 		updated, cmd, _ := m.inspectFile(msg.Path)
@@ -232,6 +240,18 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case suitereview.CanceledMsg:
 		m.screen = screenSuiteConfig
 		return m, nil
+	case runconfig.ContinueMsg:
+		value, err := m.service.BuildExecutionPlan(m.artifact, m.frozen, msg.Config)
+		if err != nil {
+			m.err, m.returnTo, m.screen = err, screenRunConfig, screenError
+			return m, nil
+		}
+		m.executionPlan, m.planConfirmed = value, false
+		m.screen, m.status = screenExecutionPlan, ""
+		return m, nil
+	case runconfig.CanceledMsg:
+		m.screen = screenSuiteReady
+		return m, nil
 	}
 
 	key, isKey := message.(tea.KeyPressMsg)
@@ -256,6 +276,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case screenSuiteReview:
 		m.suiteReview, cmd = m.suiteReview.Update(message)
+	case screenRunConfig:
+		m.runConfig, cmd = m.runConfig.Update(message)
 	}
 	return m, cmd
 }
@@ -497,7 +519,19 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		if value == "enter" {
-			m.status = "Execution planning is the next feature in this stage."
+			m.runConfig = runconfig.New(plan.DefaultConfig(), runConfigStyles(m.styles))
+			m.runConfig.SetSize(m.inputWidth())
+			m.screen, m.status = screenRunConfig, ""
+			return m, nil, true
+		}
+	case screenExecutionPlan:
+		if value == "esc" {
+			m.screen, m.status, m.planConfirmed = screenRunConfig, "", false
+			return m, nil, true
+		}
+		if value == "enter" {
+			m.planConfirmed = true
+			m.status = "Plan confirmed. Secure execution arrives in Stage 3."
 			return m, nil, true
 		}
 	case screenError:
@@ -538,6 +572,7 @@ func (m *Model) resizeInputs() {
 	m.paste.SetWidth(inputWidth)
 	m.paste.SetHeight(max(5, min(14, m.canvasHeight()-9)))
 	m.suiteReview.SetSize(inputWidth, max(6, m.canvasHeight()-8))
+	m.runConfig.SetSize(inputWidth)
 }
 
 func (m Model) View() tea.View {
@@ -615,6 +650,10 @@ func (m Model) body(available int) string {
 		return m.suiteReuseConfirmBody()
 	case screenSuiteReady:
 		return m.suiteReadyBody()
+	case screenRunConfig:
+		return m.runConfig.View()
+	case screenExecutionPlan:
+		return m.executionPlanBody()
 	case screenError:
 		message := "Unknown error"
 		if m.err != nil {
@@ -724,6 +763,13 @@ func (m Model) footer() string {
 		return "enter confirm relevance  esc cancel"
 	case screenSuiteReady:
 		return "enter continue  esc suites"
+	case screenRunConfig:
+		return m.runConfig.Footer()
+	case screenExecutionPlan:
+		if m.planConfirmed {
+			return "esc configuration"
+		}
+		return "enter confirm plan  esc configuration"
 	case screenError:
 		return "enter/esc back"
 	default:
@@ -745,6 +791,10 @@ func (m Model) flowName() string {
 		return "new evaluation / tests"
 	case screenSuiteReview, screenSuiteReady:
 		return "new evaluation / review tests"
+	case screenRunConfig:
+		return "new evaluation / configure"
+	case screenExecutionPlan:
+		return "new evaluation / execution plan"
 	case screenError:
 		return "error"
 	default:
@@ -895,6 +945,49 @@ func (m Model) suiteReadyBody() string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) executionPlanBody() string {
+	value := m.executionPlan
+	network := "off"
+	if value.Config.Network {
+		network = "on"
+	}
+	lines := []string{
+		m.styles.accent.Render("Review execution plan"), "",
+		fmt.Sprintf("input        %s  %s", displayLabel(m.artifact), shortHash(value.ArtifactSHA)),
+		fmt.Sprintf("suite        %s  r%d  %s", value.SuiteID, value.SuiteRevision, shortHash(value.SuiteSHA)),
+		fmt.Sprintf("tests        %d cases × %d trial(s) = %d trials", value.EnabledCases, value.Config.TrialsPerCase, value.PlannedTrials),
+		fmt.Sprintf("models       %s executor / %s judge", value.Config.ExecutorModel, value.Config.JudgeModel),
+		fmt.Sprintf("harness      Codex   estimated calls %d", value.EstimatedModelCalls),
+		fmt.Sprintf("limits       %ds timeout   concurrency %d   network %s", value.Config.TimeoutSeconds, value.Config.Concurrency, network),
+		"fixtures     " + strings.Join(value.FixtureIDs, ", "), "",
+		m.styles.muted.Render("Each trial and judgment will use independent sessions in disposable OCI workspaces."),
+	}
+	if value.Config.ExecutorModel == value.Config.JudgeModel {
+		lines = append(lines, m.styles.muted.Render("Executor and judge use the same model name but never the same session."))
+	}
+	if value.Config.Network {
+		lines = append(lines, m.styles.warning.Render("Trial commands will use the reviewed network-enabled policy."))
+	}
+	if m.status != "" {
+		style := m.styles.warning
+		if m.planConfirmed {
+			style = m.styles.success
+		}
+		lines = append(lines, "", style.Render(m.status))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func displayLabel(artifact model.Artifact) string {
+	if artifact.Label != "" {
+		return artifact.Label
+	}
+	if artifact.EntryPath != "" {
+		return artifact.EntryPath
+	}
+	return "input"
+}
+
 func enabledCases(draft suite.Draft) int {
 	count := 0
 	for _, testCase := range draft.Cases {
@@ -930,6 +1023,10 @@ func fileBrowserStyles(value styles) filebrowser.Styles {
 
 func suiteReviewStyles(value styles) suitereview.Styles {
 	return suitereview.Styles{Text: value.text, Muted: value.muted, Selected: value.selected, Accent: value.accent, Warning: value.warning}
+}
+
+func runConfigStyles(value styles) runconfig.Styles {
+	return runconfig.Styles{Text: value.text, Muted: value.muted, Selected: value.selected, Accent: value.accent, Warning: value.warning}
 }
 
 func shortHash(hash string) string {

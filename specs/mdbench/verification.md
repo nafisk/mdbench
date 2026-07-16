@@ -24,5 +24,26 @@ Evidence:
 
 Known gaps:
 
-- Test-suite generation and evaluation are intentionally deferred to later approved stages.
+- Secure trial execution and scoring are intentionally deferred to later approved stages.
 - Broad terminal snapshots and compatibility matrices remain deferred under the MVP testing agreement.
+
+## Stage 2: Test suites and guided planning flow
+
+Status: Complete
+
+Completed: 2026-07-15
+
+Evidence:
+
+- `go test ./...` passed fixture snapshot, suite validation, canonical hash, immutable revision, atomic suite storage, generation, review, reuse, run configuration, and execution-plan checks.
+- `go vet ./...` passed.
+- `go build -buildvcs=false -o /private/tmp/mdbench-stage2 ./cmd/mdbench` completed.
+- A manual TUI pass generated six tests, inspected case assertions and scoring anchors, froze revision 1, configured evaluation defaults, and confirmed a six-trial, twelve-model-call execution plan.
+- A second manual TUI pass loaded the frozen revision, showed its origin and applicability, required relevance confirmation, and reached an identical execution plan without changing the suite.
+- Focused TUI checks cover generation, freezing, saved-suite listing, edit-revision entry, reuse confirmation, model configuration, and plan construction.
+- Feature commits: `c91b01c`, `3eff67c`, `3f19a22`, and `66ef697`; the execution-plan commit completes this stage.
+
+Known gaps:
+
+- The development generator is deterministic and makes no model calls. The live Codex generator waits for the approved secure runtime boundary.
+- Plan confirmation stops before execution. Containers, trials, and cancellation arrive in Stage 3.

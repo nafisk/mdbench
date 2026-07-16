@@ -8,6 +8,7 @@ import (
 	"github.com/nafiskhan/mdbench/internal/analyze"
 	"github.com/nafiskhan/mdbench/internal/harness"
 	"github.com/nafiskhan/mdbench/internal/model"
+	"github.com/nafiskhan/mdbench/internal/plan"
 	"github.com/nafiskhan/mdbench/internal/store"
 	"github.com/nafiskhan/mdbench/internal/suite"
 )
@@ -60,6 +61,14 @@ func (s *Service) ListSuites() ([]suite.Frozen, error) {
 		return nil, fmt.Errorf("list suites: %w", err)
 	}
 	return values, nil
+}
+
+func (s *Service) BuildExecutionPlan(artifact model.Artifact, frozen suite.Frozen, config plan.Config) (plan.ExecutionPlan, error) {
+	value, err := plan.Build(artifact, frozen, config)
+	if err != nil {
+		return plan.ExecutionPlan{}, fmt.Errorf("build execution plan: %w", err)
+	}
+	return value, nil
 }
 
 func (s *Service) InspectFile(path, label string) (model.Artifact, error) {
