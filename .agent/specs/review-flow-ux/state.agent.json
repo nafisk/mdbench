@@ -12,6 +12,11 @@
     {
       "at": "2026-07-16T19:21:58Z",
       "event": "requirements_created"
+    },
+    {
+      "at": "2026-07-16T19:26:39Z",
+      "event": "requirements_updated",
+      "detail": "Clarified the lightweight Weighted label for default 1.0x criteria."
     }
   ]
 }

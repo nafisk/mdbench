@@ -33,13 +33,14 @@ This feature makes text entry and test-suite review clearer without enlarging th
 #### Acceptance Criteria
 
 1. WHEN test-suite review opens, THE mdbench SHALL show the test-case list and a visible summary labeled `Weighted scoring criteria` on the same screen.
-2. WHEN a test case is generated, THE mdbench SHALL assign the subset of enabled criteria relevant to that case.
-3. WHEN the user opens a test case, THE mdbench SHALL show the criteria assigned to that case.
-4. WHEN the user reviews weighted scoring criteria, THE mdbench SHALL allow each approved criterion to be enabled or disabled and its positive weight to be changed.
-5. WHEN a criterion is disabled and later re-enabled, THE mdbench SHALL preserve its generated case assignments.
-6. IF disabling a criterion would leave an enabled case with no enabled criterion, THEN THE mdbench SHALL block the change and explain why.
-7. THE mdbench SHALL require at least one enabled weighted scoring criterion.
-8. THE mdbench SHALL NOT expose arbitrary custom criterion creation in this MVP feature.
+2. WHILE every criterion uses its default weight, THE mdbench SHALL use the word `Weighted` as the overview cue that weights are editable without repeating `1.0x` beside every criterion.
+3. WHEN a test case is generated, THE mdbench SHALL assign the subset of enabled criteria relevant to that case.
+4. WHEN the user opens a test case, THE mdbench SHALL show the criteria assigned to that case.
+5. WHEN the user reviews weighted scoring criteria, THE mdbench SHALL allow each approved criterion to be enabled or disabled and its positive weight to be changed.
+6. WHEN a criterion is disabled and later re-enabled, THE mdbench SHALL preserve its generated case assignments.
+7. IF disabling a criterion would leave an enabled case with no enabled criterion, THEN THE mdbench SHALL block the change and explain why.
+8. THE mdbench SHALL require at least one enabled weighted scoring criterion.
+9. THE mdbench SHALL NOT expose arbitrary custom criterion creation in this MVP feature.
 
 ### Requirement 3: User-requested tests
 
